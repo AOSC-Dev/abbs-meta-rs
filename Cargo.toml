@@ -1,0 +1,11 @@
+[package]
+name = "abbs"
+version = "0.1.0"
+authors = ["Leo Shen <i@szclsya.me>"]
+edition = "2018"
+
+[dependencies]
+anyhow = "1"
+walkdir = "2"
+rayon = "1.5"
+conch-parser = { git = "https://github.com/liushuyu/conch-parser" }
