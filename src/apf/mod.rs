@@ -23,10 +23,10 @@ pub enum ParseErrorInfo {
 
 pub fn parse(c: &str, context: &mut Context) -> Result<(), ParseError> {
     let lex = Lexer::new(c.chars());
-    let parser = DefaultParser::new(lex);
+    let mut parser = DefaultParser::new(lex);
 
-    for cmd in parser {
-        let cmd = match cmd {
+    loop {
+        let cmd = match parser.complete_command() {
             Ok(x) => x,
             Err(e) => {
                 let pos = parser.pos();
@@ -37,17 +37,23 @@ pub fn parse(c: &str, context: &mut Context) -> Result<(), ParseError> {
                 });
             },
         };
-        match get_args_top_level(&cmd, context) {
-            Ok(_) => (),
-            Err(e) => {
-                let pos = parser.pos();
-                return Err(ParseError {
-                    line: pos.line,
-                    col: pos.col,
-                    error: e
-                })
-            }
-        };
+
+        match cmd {
+            Some(cmd) => {
+                match get_args_top_level(&cmd, context) {
+                    Ok(_) => (),
+                    Err(e) => {
+                        let pos = parser.pos();
+                        return Err(ParseError {
+                            line: pos.line,
+                            col: pos.col,
+                            error: e
+                        })
+                    }
+                };
+            },
+            None => {break;}
+        }
     }
 
     Ok(())
@@ -63,7 +69,13 @@ fn get_args_top_level(cmd: &ast::TopLevelCommand<String>, context: &mut Context)
                 .map(|cmd| get_args_listable(&cmd, context))
                 .collect();
             println!("{:?}", results);
-            return Ok(());
+            for r in results {
+                match r {
+                    Ok(_) => (),
+                    Err(e) => { return Err(e); }, 
+                }
+            }
+            Ok(())
         }
         ast::Command::Job(_l) => {
             Err(ParseErrorInfo::InvalidSyntax("Syntax error: job not allowed.".to_string()))
