@@ -1,10 +1,8 @@
-use std::path::PathBuf;
-
-use anyhow::{format_err, Result};
-use std::collections::HashMap;
 use conch_parser::ast;
 use conch_parser::lexer::Lexer;
 use conch_parser::parse::DefaultParser;
+use std::collections::HashMap;
+
 
 type Context = HashMap<String, String>;
 
@@ -12,13 +10,14 @@ type Context = HashMap<String, String>;
 pub struct ParseError {
     line: usize,
     col: usize,
-    error: ParseErrorInfo
+    error: ParseErrorInfo,
 }
 
 #[derive(Debug)]
 pub enum ParseErrorInfo {
     InvalidSyntax(String),
-    ContextError(String)
+    ContextError(String),
+    SubstitutionError(String),
 }
 
 pub fn parse(c: &str, context: &mut Context) -> Result<(), ParseError> {
@@ -35,7 +34,7 @@ pub fn parse(c: &str, context: &mut Context) -> Result<(), ParseError> {
                     col: pos.col,
                     error: ParseErrorInfo::InvalidSyntax(e.to_string()),
                 });
-            },
+            }
         };
 
         match cmd {
@@ -47,19 +46,24 @@ pub fn parse(c: &str, context: &mut Context) -> Result<(), ParseError> {
                         return Err(ParseError {
                             line: pos.line,
                             col: pos.col,
-                            error: e
-                        })
+                            error: e,
+                        });
                     }
                 };
-            },
-            None => {break;}
+            }
+            None => {
+                break;
+            }
         }
     }
 
     Ok(())
 }
 
-fn get_args_top_level(cmd: &ast::TopLevelCommand<String>, context: &mut Context) -> Result<(), ParseErrorInfo> {
+fn get_args_top_level(
+    cmd: &ast::TopLevelCommand<String>,
+    context: &mut Context,
+) -> Result<(), ParseErrorInfo> {
     match &cmd.0 {
         ast::Command::List(list) => {
             let results: Vec<Result<(), ParseErrorInfo>> = std::iter::once(&list.first)
@@ -72,41 +76,54 @@ fn get_args_top_level(cmd: &ast::TopLevelCommand<String>, context: &mut Context)
             for r in results {
                 match r {
                     Ok(_) => (),
-                    Err(e) => { return Err(e); }, 
+                    Err(e) => {
+                        return Err(e);
+                    }
                 }
             }
             Ok(())
         }
-        ast::Command::Job(_l) => {
-            Err(ParseErrorInfo::InvalidSyntax("Syntax error: job not allowed.".to_string()))
-        }
+        ast::Command::Job(_l) => Err(ParseErrorInfo::InvalidSyntax(
+            "Syntax error: job not allowed.".to_string(),
+        )),
     }
 }
 
-fn get_args_listable(cmd: &ast::DefaultListableCommand, context: &mut Context) -> Result<(), ParseErrorInfo> {
+fn get_args_listable(
+    cmd: &ast::DefaultListableCommand,
+    context: &mut Context,
+) -> Result<(), ParseErrorInfo> {
     match cmd {
         ast::ListableCommand::Single(cmd) => get_args_pipeable(cmd, context),
-        ast::ListableCommand::Pipe(_, _cmds) => {
-            Err(ParseErrorInfo::InvalidSyntax("Pipe not allowed".to_string()))
-        }
+        ast::ListableCommand::Pipe(_, _cmds) => Err(ParseErrorInfo::InvalidSyntax(
+            "Pipe not allowed".to_string(),
+        )),
     }
 }
 
-fn get_args_pipeable(cmd: &ast::DefaultPipeableCommand, context: &mut Context) -> Result<(), ParseErrorInfo> {
+fn get_args_pipeable(
+    cmd: &ast::DefaultPipeableCommand,
+    context: &mut Context,
+) -> Result<(), ParseErrorInfo> {
     match cmd {
         ast::PipeableCommand::Simple(cmd) => get_args_simple(cmd, context),
-        ast::PipeableCommand::Compound(_cmd) => {
-            Err(ParseErrorInfo::InvalidSyntax("Redirection not allowed.".to_string()))
-        }
-        ast::PipeableCommand::FunctionDef(_, _cmd) => {
-            Err(ParseErrorInfo::InvalidSyntax("Function definition not allowed.".to_string()))
-        }
+        ast::PipeableCommand::Compound(_cmd) => Err(ParseErrorInfo::InvalidSyntax(
+            "Redirection not allowed.".to_string(),
+        )),
+        ast::PipeableCommand::FunctionDef(_, _cmd) => Err(ParseErrorInfo::InvalidSyntax(
+            "Function definition not allowed.".to_string(),
+        )),
     }
 }
 
-fn get_args_simple(cmd: &ast::DefaultSimpleCommand, context: &mut Context) -> Result<(), ParseErrorInfo> {
+fn get_args_simple(
+    cmd: &ast::DefaultSimpleCommand,
+    context: &mut Context,
+) -> Result<(), ParseErrorInfo> {
     if !cmd.redirects_or_cmd_words.is_empty() {
-        return Err(ParseErrorInfo::InvalidSyntax("Commands not allowed.".to_string()));
+        return Err(ParseErrorInfo::InvalidSyntax(
+            "Commands not allowed.".to_string(),
+        ));
     }
 
     // Find redirects. If found, return syntax error.
@@ -119,7 +136,9 @@ fn get_args_simple(cmd: &ast::DefaultSimpleCommand, context: &mut Context) -> Re
         })
         .is_some()
     {
-        return Err(ParseErrorInfo::InvalidSyntax("Redirects not allowed.".to_string()));
+        return Err(ParseErrorInfo::InvalidSyntax(
+            "Redirects not allowed.".to_string(),
+        ));
     }
 
     for redirect_or_env_var in cmd.redirects_or_env_vars.iter() {
@@ -128,50 +147,65 @@ fn get_args_simple(cmd: &ast::DefaultSimpleCommand, context: &mut Context) -> Re
                 let word = match word {
                     Some(w) => w,
                     None => {
-                        return Err(ParseErrorInfo::InvalidSyntax(format!("Variable {} without value.", name)));
+                        return Err(ParseErrorInfo::InvalidSyntax(format!(
+                            "Variable {} without value.",
+                            name
+                        )));
                     }
                 };
 
-                get_vec_value(word, name, context)?
-            },
+                let value = get_complex_word_as_string(word, context)?;
+                context.insert(name.to_string(), value);
+            }
             ast::RedirectOrEnvVar::Redirect(_) => {
-                return Err(ParseErrorInfo::InvalidSyntax("Redirects not allowed.".to_string()));
-            },
+                return Err(ParseErrorInfo::InvalidSyntax(
+                    "Redirects not allowed.".to_string(),
+                ));
+            }
         };
     }
     Ok(())
 }
 
-fn get_vec_value(word: &ast::DefaultComplexWord, name: &str, context: &mut Context) -> Result<(), ParseErrorInfo> {
+fn get_complex_word_as_string(
+    word: &ast::DefaultComplexWord,
+    context: &Context,
+) -> Result<String, ParseErrorInfo> {
     let word = match word {
-        ast::ComplexWord::Single(w) => w,
-        ast::ComplexWord::Concat(_w) => {
-            // TODO: What is a concatanated word?
-            return Err(ParseErrorInfo::InvalidSyntax("Concatanated word unsupported.".to_string()));
+        ast::ComplexWord::Single(word) => word.clone(),
+        ast::ComplexWord::Concat(words) => {
+            let mut word_content = String::new();
+            for w in words {
+                word_content += &get_word_as_string(w, context)?;
+            }
+            ast::Word::Simple(ast::SimpleWord::Literal(word_content))
         }
     };
 
-    match word {
-        ast::Word::SingleQuoted(w) => {
-            context.insert(name.to_string(), w.to_string());
-        },
-        ast::Word::Simple(w) => {
-            let value = get_simple_word_as_string(w, context)?.to_string();
-            context.insert(name.to_string(), value.to_string());
-        },
+    get_word_as_string(&word, context)
+}
+
+fn get_word_as_string(word: &ast::DefaultWord, context: &Context) -> Result<String, ParseErrorInfo> {
+    let result = match word {
+        ast::Word::SingleQuoted(w) => w.to_string(),
+        ast::Word::Simple(w) => get_simple_word_as_string(w, context)?.to_string(),
         ast::Word::DoubleQuoted(words) => {
             let mut value = String::new();
             for w in words {
                 value += &get_simple_word_as_string(w, context)?;
             }
-            context.insert(name.to_string(), value.to_string());
-        },
+            value
+        }
     };
 
-    Ok(())
+    Ok(result)
 }
 
-fn get_simple_word_as_string(word: &ast::DefaultSimpleWord, context: &mut Context) -> Result<String, ParseErrorInfo> {
+fn get_simple_word_as_string(
+    word: &ast::DefaultSimpleWord,
+    context: &Context,
+) -> Result<String, ParseErrorInfo> {
+    println!("{:?}", word);
     match word {
         ast::SimpleWord::Literal(w) => Ok(w.to_string()),
         ast::SimpleWord::Escaped(w) => {
@@ -181,38 +215,98 @@ fn get_simple_word_as_string(word: &ast::DefaultSimpleWord, context: &mut Contex
             };
             Ok(res)
         },
-        ast::SimpleWord::Param(p) => {
-            match get_parameter_as_string(p, context)? {
-                Some(p) => Ok(p),
-                None => Err(ParseErrorInfo::ContextError("Param variable not found.".to_string()))
-            }
+        ast::SimpleWord::Colon => {
+            Ok(":".to_string())
         },
-        //ast::SimpleWord::Subst(s) => Ok(s), // TODO
-        _ => Err(ParseErrorInfo::InvalidSyntax("Encountered star, square, tide, or other unsupported chatacters.".to_string())),
+        ast::SimpleWord::Param(p) => match get_parameter_as_string(p, context)? {
+            Some(p) => Ok(p),
+            None => Err(ParseErrorInfo::ContextError(
+                "Param variable not found.".to_string(),
+            )),
+        },
+        ast::SimpleWord::Subst(s) => get_subst_result(s, context),
+        _ => Err(ParseErrorInfo::InvalidSyntax(
+            "Encountered star, square, tide, or other unsupported chatacters.".to_string(),
+        )),
     }
 }
 
-fn get_parameter_as_string(parameter: &ast::DefaultParameter, context: &mut Context) -> Result<Option<String>, ParseErrorInfo> {
+fn get_parameter_as_string(
+    parameter: &ast::DefaultParameter,
+    context: &Context,
+) -> Result<Option<String>, ParseErrorInfo> {
     match parameter {
-        ast::Parameter::Var(name) => {
-            match context.get(name) {
-                Some(value) => {
-                    Ok(Some(value.clone()))
-                },
-                None => {
-                    Ok(None)
-                }
-            }
+        ast::Parameter::Var(name) => match context.get(name) {
+            Some(value) => Ok(Some(value.clone())),
+            None => Ok(None),
         },
-        _ => Err(ParseErrorInfo::InvalidSyntax("Unsupported parameter.".to_string()))
+        _ => Err(ParseErrorInfo::InvalidSyntax(
+            "Unsupported parameter.".to_string(),
+        )),
     }
 }
 
-fn get_subst_result(subst: &ast::DefaultParameterSubstitution) -> Result<String> {
-    todo!();
-    /*
+fn get_subst_result(
+    subst: &ast::DefaultParameterSubstitution,
+    context: &Context,
+) -> Result<String, ParseErrorInfo> {
+    println!("{:?}", subst);
     match subst {
-        &ast::ParameterSubstitution::Substring()
+        ast::ParameterSubstitution::Substring(param, command) => {
+            let origin = match get_parameter_as_string(param, context)? {
+                Some(p) => p,
+                None => {
+                    return Err(ParseErrorInfo::ContextError(format!(
+                        "Param {} not found.",
+                        param
+                    )));
+                }
+            };
+
+            let command = match command {
+                Some(c) => c,
+                None => { return Err(ParseErrorInfo::InvalidSyntax("No substring command provided".to_string())); }
+            };
+
+            get_substring(&origin, &get_complex_word_as_string(command, context)?)
+        }
+        _ => { todo!() }
     }
-    */
+}
+
+fn get_substring(origin: &str, command: &str) -> Result<String, ParseErrorInfo> {
+    let (begin, length) = match command.chars().filter(|c| c == &':').count() {
+        0 => {
+            (parse_number(command)?, None)
+        },
+        1 => {
+            let commands: Vec<&str> = command.split(":").collect();
+            (parse_number(commands[0])?, Some(parse_number(commands[1])?))
+        },
+        _ => { return Err(ParseErrorInfo::InvalidSyntax("Bad substring command.".to_string())); },
+    };
+
+    if begin > origin.len() {
+        return Err(ParseErrorInfo::SubstitutionError("Begin is than length.".to_string()));
+    }
+
+    match length {
+        Some(l) => {
+            if begin + l > origin.len() {
+                return Err(ParseErrorInfo::SubstitutionError("End of substring bigger than length.".to_string()));
+            }
+
+            Ok(origin[begin..begin+l].to_string())
+        },
+        None => Ok(origin[begin..].to_string())
+    }
+}
+
+fn parse_number(s: &str) -> Result<usize, ParseErrorInfo> {
+    let res: usize = match s.parse() {
+        Ok(r) => r,
+        Err(_e) => { return Err(ParseErrorInfo::InvalidSyntax("Bad substring begin position.".to_string())); }
+    };
+
+    Ok(res)
 }
