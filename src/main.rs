@@ -36,7 +36,7 @@ fn main() -> Result<()> {
     let mut content = String::new();
     let mut context =  HashMap::new();
     f.read_to_string(&mut content)?;
-    apf::try_parse(&content, &mut context)?;
+    apf::parse(&content, &mut context).unwrap();
 
     println!("{:#?}", context);
     Ok(())
