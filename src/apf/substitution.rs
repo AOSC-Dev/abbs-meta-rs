@@ -1,6 +1,7 @@
 use super::{ ParseErrorInfo, glob::get_regex_string_from_glob };
 
 use regex::Regex;
+use std::cmp;
 
 /// Substring in bash subsitution.
 /// i.e: ${variable:BEGIN:LENGTH}
@@ -18,28 +19,30 @@ pub fn get_substring(origin: &str, command: &str) -> Result<String, ParseErrorIn
         }
     };
 
-    if begin > origin.len() {
-        return Err(ParseErrorInfo::SubstitutionError(
-            "Begin is than length.".to_string(),
-        ));
-    }
-
-    match length {
-        Some(l) => {
-            if begin + l > origin.len() {
-                return Err(ParseErrorInfo::SubstitutionError(
-                    "End of substring bigger than length.".to_string(),
-                ));
+    if begin >= 0 {
+        let real_begin = begin as usize;
+        let mut real_end = origin.len();
+        if let Some(len) = length {
+            if len > 0 {
+                real_end = real_begin + (len as usize);
+            } else {
+                real_end = origin.len() - cmp::min(origin.len(), len.abs() as usize);
             }
-
-            Ok(origin[begin..begin + l].to_string())
         }
-        None => Ok(origin[begin..].to_string()),
+        // Trim both ends
+        if real_begin > origin.len() || real_end <= real_begin {
+            return Ok("".to_string());
+        }
+
+        Ok(origin[real_begin..real_end].to_string())
+    } else {
+        Ok(origin.to_string())
     }
+
 }
 
-fn parse_number(s: &str) -> Result<usize, ParseErrorInfo> {
-    let res: usize = match s.parse() {
+fn parse_number(s: &str) -> Result<isize, ParseErrorInfo> {
+    let res: isize = match s.parse() {
         Ok(r) => r,
         Err(_e) => {
             return Err(ParseErrorInfo::InvalidSyntax(
@@ -85,4 +88,29 @@ pub fn get_replace(origin: &str, command: &str, all: bool) -> Result<String, Par
     };
 
     Ok(result.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_substring() {
+        // Bash magic!
+        let origin = "123456789";
+        let cases = vec![
+            ("1:3","234"),
+            ("1:-3", "23456"),
+            ("-1:3", "123456789"),
+            ("-1:-3", "123456789"),
+            ("0:-3", "123456"),
+            ("-3:0", "123456789"),
+            ("3", "456789"),
+            ("-3","123456789"),
+        ];
+
+        for c in cases {
+            assert_eq!(get_substring(origin, c.0).unwrap(), c.1);
+        }
+    }
 }
