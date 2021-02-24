@@ -3,6 +3,7 @@ use conch_parser::lexer::Lexer;
 use conch_parser::parse::DefaultParser;
 use std::collections::HashMap;
 
+mod substitution;
 
 type Context = HashMap<String, String>;
 
@@ -18,6 +19,19 @@ pub enum ParseErrorInfo {
     InvalidSyntax(String),
     ContextError(String),
     SubstitutionError(String),
+    RegexError(String),
+}
+
+impl From<regex::Error> for ParseErrorInfo {
+    fn from(err: regex::Error) -> Self {
+        match err {
+            regex::Error::Syntax(s) => ParseErrorInfo::RegexError(format!("Syntax error: {}", s)),
+            regex::Error::CompiledTooBig(_size) => {
+                ParseErrorInfo::RegexError(format!("Compiled syntax too big."))
+            }
+            _ => ParseErrorInfo::RegexError(format!("Internal regex error.")),
+        }
+    }
 }
 
 pub fn parse(c: &str, context: &mut Context) -> Result<(), ParseError> {
@@ -185,7 +199,10 @@ fn get_complex_word_as_string(
     get_word_as_string(&word, context)
 }
 
-fn get_word_as_string(word: &ast::DefaultWord, context: &Context) -> Result<String, ParseErrorInfo> {
+fn get_word_as_string(
+    word: &ast::DefaultWord,
+    context: &Context,
+) -> Result<String, ParseErrorInfo> {
     let result = match word {
         ast::Word::SingleQuoted(w) => w.to_string(),
         ast::Word::Simple(w) => get_simple_word_as_string(w, context)?.to_string(),
@@ -214,10 +231,8 @@ fn get_simple_word_as_string(
                 _ => w.to_string(),
             };
             Ok(res)
-        },
-        ast::SimpleWord::Colon => {
-            Ok(":".to_string())
-        },
+        }
+        ast::SimpleWord::Colon => Ok(":".to_string()),
         ast::SimpleWord::Param(p) => match get_parameter_as_string(p, context)? {
             Some(p) => Ok(p),
             None => Err(ParseErrorInfo::ContextError(
@@ -246,67 +261,69 @@ fn get_parameter_as_string(
     }
 }
 
+fn get_subst_origin(
+    param: &ast::DefaultParameter,
+    context: &Context,
+) -> Result<String, ParseErrorInfo> {
+    let origin = match get_parameter_as_string(param, context)? {
+        Some(p) => p,
+        None => {
+            return Err(ParseErrorInfo::ContextError(format!(
+                "Param {} not found.",
+                param
+            )));
+        }
+    };
+    Ok(origin)
+}
+
 fn get_subst_result(
     subst: &ast::DefaultParameterSubstitution,
     context: &Context,
 ) -> Result<String, ParseErrorInfo> {
     println!("{:?}", subst);
     match subst {
-        ast::ParameterSubstitution::Substring(param, command) => {
-            let origin = match get_parameter_as_string(param, context)? {
-                Some(p) => p,
+        ast::ParameterSubstitution::ReplaceString(param, command) => {
+            let origin = get_subst_origin(param, context)?;
+            let command = match command {
+                Some(c) => get_complex_word_as_string(c, context)?,
                 None => {
-                    return Err(ParseErrorInfo::ContextError(format!(
-                        "Param {} not found.",
-                        param
-                    )));
+                    return Err(ParseErrorInfo::InvalidSyntax(
+                        "No substring command provided".to_string(),
+                    ));
                 }
             };
 
+            substitution::get_replace(&origin, &command, false)
+        }
+        ast::ParameterSubstitution::ReplaceStringAll(param, command) => {
+            let origin = get_subst_origin(param, context)?;
             let command = match command {
-                Some(c) => c,
-                None => { return Err(ParseErrorInfo::InvalidSyntax("No substring command provided".to_string())); }
+                Some(c) => get_complex_word_as_string(c, context)?,
+                None => {
+                    return Err(ParseErrorInfo::InvalidSyntax(
+                        "No substring command provided".to_string(),
+                    ));
+                }
             };
 
-            get_substring(&origin, &get_complex_word_as_string(command, context)?)
+            substitution::get_replace(&origin, &command, true)
         }
-        _ => { todo!() }
+        ast::ParameterSubstitution::Substring(param, command) => {
+            let origin = get_subst_origin(param, context)?;
+            let command = match command {
+                Some(c) => get_complex_word_as_string(c, context)?,
+                None => {
+                    return Err(ParseErrorInfo::InvalidSyntax(
+                        "No substring command provided".to_string(),
+                    ));
+                }
+            };
+
+            substitution::get_substring(&origin, &command)
+        }
+        _ => {
+            todo!()
+        }
     }
-}
-
-fn get_substring(origin: &str, command: &str) -> Result<String, ParseErrorInfo> {
-    let (begin, length) = match command.chars().filter(|c| c == &':').count() {
-        0 => {
-            (parse_number(command)?, None)
-        },
-        1 => {
-            let commands: Vec<&str> = command.split(":").collect();
-            (parse_number(commands[0])?, Some(parse_number(commands[1])?))
-        },
-        _ => { return Err(ParseErrorInfo::InvalidSyntax("Bad substring command.".to_string())); },
-    };
-
-    if begin > origin.len() {
-        return Err(ParseErrorInfo::SubstitutionError("Begin is than length.".to_string()));
-    }
-
-    match length {
-        Some(l) => {
-            if begin + l > origin.len() {
-                return Err(ParseErrorInfo::SubstitutionError("End of substring bigger than length.".to_string()));
-            }
-
-            Ok(origin[begin..begin+l].to_string())
-        },
-        None => Ok(origin[begin..].to_string())
-    }
-}
-
-fn parse_number(s: &str) -> Result<usize, ParseErrorInfo> {
-    let res: usize = match s.parse() {
-        Ok(r) => r,
-        Err(_e) => { return Err(ParseErrorInfo::InvalidSyntax("Bad substring begin position.".to_string())); }
-    };
-
-    Ok(res)
 }
