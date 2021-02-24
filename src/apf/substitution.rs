@@ -1,4 +1,4 @@
-use super::{ ParseErrorInfo, glob::get_regex_string_from_glob };
+use super::{glob::get_regex_string_from_glob, ParseErrorInfo};
 
 use regex::Regex;
 use std::cmp;
@@ -38,7 +38,6 @@ pub fn get_substring(origin: &str, command: &str) -> Result<String, ParseErrorIn
     } else {
         Ok(origin.to_string())
     }
-
 }
 
 fn parse_number(s: &str) -> Result<isize, ParseErrorInfo> {
@@ -99,14 +98,14 @@ mod tests {
         // Bash magic!
         let origin = "123456789";
         let cases = vec![
-            ("1:3","234"),
+            ("1:3", "234"),
             ("1:-3", "23456"),
             ("-1:3", "123456789"),
             ("-1:-3", "123456789"),
             ("0:-3", "123456"),
             ("-3:0", "123456789"),
             ("3", "456789"),
-            ("-3","123456789"),
+            ("-3", "123456789"),
         ];
 
         for c in cases {

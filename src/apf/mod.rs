@@ -1,5 +1,5 @@
-mod substitution;
 mod glob;
+mod substitution;
 
 use conch_parser::ast;
 use conch_parser::lexer::Lexer;

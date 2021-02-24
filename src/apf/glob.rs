@@ -12,7 +12,7 @@ pub fn get_regex_string_from_glob(glob: &str) -> Result<String, ParseErrorInfo> 
             '\\' => {
                 in_escape = true;
                 result.push(c);
-            },
+            }
             '*' => {
                 if prev_char == ']' || in_capture_group {
                     result.push('*');
@@ -24,7 +24,7 @@ pub fn get_regex_string_from_glob(glob: &str) -> Result<String, ParseErrorInfo> 
                     }
                 }
                 in_escape = false;
-            },
+            }
             '?' => {
                 if prev_char == ']' || in_capture_group {
                     result.push(c);
@@ -36,14 +36,14 @@ pub fn get_regex_string_from_glob(glob: &str) -> Result<String, ParseErrorInfo> 
                     }
                 }
                 in_escape = false;
-            },
+            }
             '[' => {
                 if !in_escape {
                     in_capture_group = true;
                 }
                 result.push(c);
                 in_escape = false;
-            },
+            }
             ']' => {
                 if !in_escape {
                     in_capture_group = false;
@@ -60,7 +60,7 @@ pub fn get_regex_string_from_glob(glob: &str) -> Result<String, ParseErrorInfo> 
                     return Err(ParseErrorInfo::GlobError("Invalid token '!'.".to_string()));
                 }
                 in_escape = false;
-            },
+            }
             _ => {
                 result.push(c);
                 in_escape = false;
@@ -82,7 +82,7 @@ mod tests {
             ("1234", "1234"),
             ("1234*", "1234.*"),
             ("[!x?*]", "[^x?*]"),
-            ("[!abcd+]?", "[^abcd+]?")
+            ("[!abcd+]?", "[^abcd+]?"),
         ];
 
         for i in cases {
@@ -92,10 +92,7 @@ mod tests {
 
     #[test]
     fn test_bad_glob() {
-        let cases = vec![
-            "[!x!]",
-            "_!",
-        ];
+        let cases = vec!["[!x!]", "_!"];
         for i in cases {
             assert_eq!(get_regex_string_from_glob(i).is_ok(), false);
         }
