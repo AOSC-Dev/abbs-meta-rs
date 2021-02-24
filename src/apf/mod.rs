@@ -1,9 +1,10 @@
+mod substitution;
+mod glob;
+
 use conch_parser::ast;
 use conch_parser::lexer::Lexer;
 use conch_parser::parse::DefaultParser;
 use std::collections::HashMap;
-
-mod substitution;
 
 type Context = HashMap<String, String>;
 
@@ -19,6 +20,7 @@ pub enum ParseErrorInfo {
     InvalidSyntax(String),
     ContextError(String),
     SubstitutionError(String),
+    GlobError(String),
     RegexError(String),
 }
 
@@ -306,7 +308,6 @@ fn get_subst_result(
                     ));
                 }
             };
-
             substitution::get_replace(&origin, &command, true)
         }
         ast::ParameterSubstitution::Substring(param, command) => {

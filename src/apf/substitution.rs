@@ -1,4 +1,4 @@
-use super::ParseErrorInfo;
+use super::{ ParseErrorInfo, glob::get_regex_string_from_glob };
 
 use regex::Regex;
 
@@ -43,7 +43,7 @@ fn parse_number(s: &str) -> Result<usize, ParseErrorInfo> {
         Ok(r) => r,
         Err(_e) => {
             return Err(ParseErrorInfo::InvalidSyntax(
-                "Bad number in subsitution.".to_string(),
+                "Bad number in substitution.".to_string(),
             ));
         }
     };
@@ -51,8 +51,22 @@ fn parse_number(s: &str) -> Result<usize, ParseErrorInfo> {
     Ok(res)
 }
 
+fn get_chars_without_escape(c: &char, s: &str) -> usize {
+    let mut result = 0;
+    let mut prev_char = '\0';
+
+    for i in s.chars() {
+        if prev_char != '\\' && &i == c {
+            result += 1;
+        }
+        prev_char = i;
+    }
+
+    result
+}
+
 pub fn get_replace(origin: &str, command: &str, all: bool) -> Result<String, ParseErrorInfo> {
-    let (from, to) = match command.chars().filter(|c| c == &'/').count() {
+    let (from, to) = match get_chars_without_escape(&'/', command) {
         1 => {
             let commands: Vec<&str> = command.split("/").collect();
             (commands[0].to_string(), commands[1].to_string())
@@ -64,7 +78,7 @@ pub fn get_replace(origin: &str, command: &str, all: bool) -> Result<String, Par
         }
     };
 
-    let re = Regex::new(&from)?;
+    let re = Regex::new(&get_regex_string_from_glob(&from)?)?;
     let result = match all {
         true => re.replace_all(origin, to.as_str()),
         false => re.replace(origin, to.as_str()),
