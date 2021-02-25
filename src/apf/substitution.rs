@@ -19,28 +19,45 @@ pub fn get_substring(origin: &str, command: &str) -> Result<String, ParseErrorIn
         }
     };
 
-    if begin >= 0 {
-        let real_begin = begin as usize;
-        let mut real_end = origin.len();
-        if let Some(len) = length {
-            if len > 0 {
-                real_end = real_begin + (len as usize);
+    let real_begin = if begin >= 0 {
+        cmp::min(origin.len(), begin as usize)
+    } else {
+        cmp::max(origin.len() - (begin.abs() as usize), 0)
+    };
+
+    match length {
+        Some(length) => {
+            if length >= 0 {
+                let real_end = cmp::min(origin.len(), real_begin + length as usize);
+                Ok(origin[real_begin..real_end].to_string())
             } else {
-                real_end = origin.len() - cmp::min(origin.len(), len.abs() as usize);
+                let max_len = origin.len() - real_begin;
+                let real_length = cmp::max(0, max_len - length.abs() as usize);
+                let real_end = cmp::min(origin.len(), real_begin + real_length);
+                Ok(origin[real_begin..real_end].to_string())
             }
         }
-        // Trim both ends
-        if real_begin > origin.len() || real_end <= real_begin {
-            return Ok("".to_string());
-        }
-
-        Ok(origin[real_begin..real_end].to_string())
-    } else {
-        Ok(origin.to_string())
+        None => Ok(origin[real_begin..].to_string()),
     }
 }
 
 fn parse_number(s: &str) -> Result<isize, ParseErrorInfo> {
+    // Bash magic!
+    if s.len() == 0 {
+        return Ok(0);
+    }
+    let left_bracket_count = s.chars().filter(|c| c == &'(').count();
+    let right_bracket_count = s.chars().filter(|c| c == &')').count();
+
+    let mut s = s.to_string();
+    if left_bracket_count == 1 && right_bracket_count == 1 {
+        s = s.chars().filter(|c| c != &'(' && c != &')').collect();
+    } else if left_bracket_count != 0 || right_bracket_count != 0 {
+        return Err(ParseErrorInfo::InvalidSyntax(
+            "Bad parentheses in number.".to_string(),
+        ));
+    }
+
     let res: isize = match s.parse() {
         Ok(r) => r,
         Err(_e) => {
@@ -96,20 +113,23 @@ mod tests {
     #[test]
     fn test_substring() {
         // Bash magic!
-        let origin = "123456789";
-        let cases = vec![
-            ("1:3", "234"),
-            ("1:-3", "23456"),
-            ("-1:3", "123456789"),
-            ("-1:-3", "123456789"),
-            ("0:-3", "123456"),
-            ("-3:0", "123456789"),
-            ("3", "456789"),
-            ("-3", "123456789"),
+        let origin = "1234567890";
+        let ok_cases = vec![
+            ("0:1", "1"),
+            ("(0):1", "1"),
+            ("(-1):(1)", "0"),
+            (":7", "1234567"),
+            ("0", "1234567890"),
+            ("(-1):(-1)", ""),
+            ("(0):(-1)", "123456789"),
         ];
+        let err_cases = vec!["(:1", "(:1)"];
 
-        for c in cases {
+        for c in ok_cases {
             assert_eq!(get_substring(origin, c.0).unwrap(), c.1);
+        }
+        for c in err_cases {
+            assert_eq!(get_substring(origin, c).is_ok(), false);
         }
     }
 }
