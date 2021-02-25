@@ -20,7 +20,7 @@ pub fn get_regex_string_from_glob(glob: &str) -> Result<String, ParseErrorInfo> 
             }
             '[' => {
                 if idx + 1 >= length {
-                    result.push('[');
+                    result += "\\[";
                     break;
                 }
                 let mut closing = idx;
@@ -111,6 +111,9 @@ mod tests {
             ("[!a][!b]", "[^a][^b]"),
             ("[abc]]", "[abc\\]]"),
             ("[abc]][0[]]", "[abc\\]][0\\[\\]]"),
+            ("[abc", "\\[abc"),
+            ("[abc[p", "\\[abc\\[p"),
+            ("[abc[", "\\[abc\\["),
         ];
 
         for i in cases {
