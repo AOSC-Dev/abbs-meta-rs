@@ -4,7 +4,7 @@ mod substitution;
 use conch_parser::ast;
 use conch_parser::lexer::Lexer;
 use conch_parser::parse::DefaultParser;
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt};
 
 type Context = HashMap<String, String>;
 
@@ -35,6 +35,26 @@ impl From<regex::Error> for ParseErrorInfo {
         }
     }
 }
+
+impl fmt::Display for ParseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let (err_type, reason) = match &self.error {
+            ParseErrorInfo::InvalidSyntax(r) => ("Invalid syntax", r),
+            ParseErrorInfo::ContextError(r) => ("Context error", r),
+            ParseErrorInfo::SubstitutionError(r) => ("Substitution error", r),
+            ParseErrorInfo::GlobError(r) => ("Glob translation error", r),
+            ParseErrorInfo::RegexError(r) => ("Regex error", r),
+        };
+
+        write!(
+            f,
+            "{} at line {}, col {}. Reason: {}",
+            err_type, self.line, self.col, reason
+        )
+    }
+}
+
+impl std::error::Error for ParseError {}
 
 pub fn parse(c: &str, context: &mut Context) -> Result<(), ParseError> {
     let lex = Lexer::new(c.chars());
