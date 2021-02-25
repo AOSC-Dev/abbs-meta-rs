@@ -14,26 +14,18 @@ pub fn get_regex_string_from_glob(glob: &str) -> Result<String, ParseErrorInfo> 
                 result.push(c);
             }
             '*' => {
-                if prev_char == ']' || in_capture_group {
+                if prev_char == ']' || in_capture_group || in_escape {
                     result.push('*');
                 } else {
-                    if !in_escape {
-                        result += ".*";
-                    } else {
-                        result += "*";
-                    }
+                    result += ".*";
                 }
                 in_escape = false;
             }
             '?' => {
-                if prev_char == ']' || in_capture_group {
+                if prev_char == ']' || in_capture_group || in_escape {
                     result.push(c);
                 } else {
-                    if !in_escape {
-                        result += ".?";
-                    } else {
-                        result += "?";
-                    }
+                    result += ".?";
                 }
                 in_escape = false;
             }
