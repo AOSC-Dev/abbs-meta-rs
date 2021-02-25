@@ -2,63 +2,93 @@ use super::ParseErrorInfo;
 
 pub fn get_regex_string_from_glob(glob: &str) -> Result<String, ParseErrorInfo> {
     let mut result = String::new();
+    let mut idx = 0;
+    let chars = glob.chars().collect::<Vec<_>>();
+    let length = chars.len();
+    result.reserve(length);
 
-    let mut in_escape = false;
-    let mut in_capture_group = false;
-    let mut prev_char = '\0';
-
-    for c in glob.chars() {
-        match c {
+    while idx < length {
+        match chars[idx] {
             '\\' => {
-                in_escape = true;
-                result.push(c);
-            }
-            '*' => {
-                if prev_char == ']' || in_capture_group || in_escape {
-                    result.push('*');
+                result.push('\\');
+                if idx + 1 < length {
+                    idx += 1;
+                    result.push(chars[idx]);
                 } else {
-                    result += ".*";
+                    return Err(ParseErrorInfo::GlobError("Incomplete escape sequence".to_string()));
                 }
-                in_escape = false;
-            }
-            '?' => {
-                if prev_char == ']' || in_capture_group || in_escape {
-                    result.push(c);
-                } else {
-                    result += ".?";
-                }
-                in_escape = false;
             }
             '[' => {
-                if !in_escape {
-                    in_capture_group = true;
+                if idx + 1 >= length {
+                    result.push('[');
+                    break;
                 }
-                result.push(c);
-                in_escape = false;
+                let mut closing = idx;
+                let mut found = idx;
+                // find the closing bracket (greedy)
+                while closing < length {
+                    let capture = chars[closing];
+                    if capture == ']' {
+                        if closing + 1 >= length {
+                            // this one must be the closing bracket
+                            found = closing;
+                            break;
+                        }
+                        found = closing;
+                    // this is to ensure that the closing bracket is before another opening bracket
+                    } else if capture == '[' && found > idx {
+                        break;
+                    } else if capture == '!' && (chars[closing - 1] != '\\' && chars[closing - 1] != '[') {
+                        return Err(ParseErrorInfo::GlobError("Unescaped `!` symbol in a capturing group".to_string()));
+                    }
+                    closing += 1;
+                }
+                if found <= idx {
+                    // no matching closing bracket found, backtrack and interpret as non-capturing group
+                    result += "\\[";
+                    idx += 1;
+                    continue;
+                }
+                result.push('[');
+                idx += 1;
+                if chars[idx] == '!' {
+                    result.push('^');
+                    idx += 1;
+                }
+                for c in chars[idx..found].into_iter() {
+                    if *c == '[' || *c == ']' {
+                        result.push('\\');
+                    }
+                    result.push(*c);
+                }
+                result.push(']');
+                // advance the cursor to the closing brackets
+                idx = found;
+                // process repeating directives
+                if idx + 1 >= length {
+                    break;
+                }
+                let directive = chars[idx + 1];
+                if directive == '?' || directive == '*'{
+                    result.push(directive);
+                    idx += 2; // +1 for ] and +1 for */?
+                    continue;
+                }
             }
-            ']' => {
-                if !in_escape {
-                    in_capture_group = false;
-                }
-                result.push(c);
-                in_escape = false;
+            '*' => {
+                result += ".*";
+            }
+            '?' => {
+                result += ".?";
             }
             '!' => {
-                if prev_char == '[' {
-                    result.push('^');
-                } else if in_escape {
-                    result.push(c);
-                } else {
-                    return Err(ParseErrorInfo::GlobError("Invalid token '!'.".to_string()));
-                }
-                in_escape = false;
+                return Err(ParseErrorInfo::GlobError("Unescaped `!` symbol".to_string()));
             }
             _ => {
-                result.push(c);
-                in_escape = false;
+                result.push(chars[idx]);
             }
         }
-        prev_char = c;
+        idx += 1;
     }
 
     Ok(result)
@@ -75,6 +105,12 @@ mod tests {
             ("1234*", "1234.*"),
             ("[!x?*]", "[^x?*]"),
             ("[!abcd+]?", "[^abcd+]?"),
+            ("[abcd+][!123]*", "[abcd+][^123]*"),
+            ("[abcd+]?[!123]*", "[abcd+]?[^123]*"),
+            ("[a][b]", "[a][b]"),
+            ("[!a][!b]", "[^a][^b]"),
+            ("[abc]]", "[abc\\]]"),
+            ("[abc]][0[]]", "[abc\\]][0\\[\\]]"),
         ];
 
         for i in cases {
