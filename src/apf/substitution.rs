@@ -110,7 +110,12 @@ pub fn get_replace(origin: &str, command: &str, all: bool) -> Result<String, Par
 /// Returns the string with prefix or suffix removed according to the given pattern.
 ///
 /// mode: true: prefix removal, false: suffix removal
-pub fn get_trim_prefix(origin: &str, pattern: &str, mode: bool, greedy: bool) -> Result<String, ParseErrorInfo> {
+pub fn get_trim_prefix(
+    origin: &str,
+    pattern: &str,
+    mode: bool,
+    greedy: bool,
+) -> Result<String, ParseErrorInfo> {
     let mut regex_pattern = get_regex_string_from_glob(&pattern)?;
     let trim_pattern;
     if mode {
@@ -119,7 +124,11 @@ pub fn get_trim_prefix(origin: &str, pattern: &str, mode: bool, greedy: bool) ->
         }
         trim_pattern = format!("^(?:{})?(.*)$", regex_pattern);
     } else {
-        trim_pattern = format!("^(.*{})(?:{})?$", if greedy { "?" } else { "" }, regex_pattern);
+        trim_pattern = format!(
+            "^(.*{})(?:{})?$",
+            if greedy { "?" } else { "" },
+            regex_pattern
+        );
     }
     let regex = Regex::new(&trim_pattern)?;
     if let Some(result) = regex.captures(origin) {
@@ -128,7 +137,9 @@ pub fn get_trim_prefix(origin: &str, pattern: &str, mode: bool, greedy: bool) ->
         }
     }
 
-    Err(ParseErrorInfo::GlobError("Match failed with converted pattern.".to_string()))
+    Err(ParseErrorInfo::GlobError(
+        "Match failed with converted pattern.".to_string(),
+    ))
 }
 
 #[cfg(test)]

@@ -257,9 +257,10 @@ fn get_simple_word_as_string(
         ast::SimpleWord::Colon => Ok(":".to_string()),
         ast::SimpleWord::Param(p) => match get_parameter_as_string(p, context)? {
             Some(p) => Ok(p),
-            None => Err(ParseErrorInfo::ContextError(
-                format!("variable '{}' is undefined", p)
-            )),
+            None => Err(ParseErrorInfo::ContextError(format!(
+                "variable '{}' is undefined",
+                p
+            ))),
         },
         ast::SimpleWord::Subst(s) => get_subst_result(s, context),
         ast::SimpleWord::Star => Ok("*".to_string()),
@@ -398,7 +399,7 @@ fn get_subst_result(
             match origin {
                 Ok(origin) => {
                     if *colon && origin.is_empty() {
-                        return Ok(String::new())
+                        return Ok(String::new());
                     }
                 }
                 Err(_) => return Ok(String::new()),
@@ -467,8 +468,17 @@ fn get_subst_result(
 
             substitution::get_trim_prefix(&origin, &command, false, true)
         }
-        _ => {
-            todo!()
+        ast::ParameterSubstitution::Assign(_, param, _) => {
+            return Err(ParseErrorInfo::InvalidSyntax(format!(
+                "Variable assignment ({}) inside a substitution is not allowed",
+                param
+            )));
+        }
+        ast::ParameterSubstitution::Arith(command) => {
+            return Err(ParseErrorInfo::InvalidSyntax(format!(
+                "Arithmetic operation ({:?}) inside a substitution is not supported",
+                command
+            )));
         }
     }
 }

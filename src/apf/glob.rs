@@ -15,7 +15,9 @@ pub fn get_regex_string_from_glob(glob: &str) -> Result<String, ParseErrorInfo> 
                     idx += 1;
                     result.push(chars[idx]);
                 } else {
-                    return Err(ParseErrorInfo::GlobError("Incomplete escape sequence".to_string()));
+                    return Err(ParseErrorInfo::GlobError(
+                        "Incomplete escape sequence".to_string(),
+                    ));
                 }
             }
             '[' => {
@@ -38,8 +40,12 @@ pub fn get_regex_string_from_glob(glob: &str) -> Result<String, ParseErrorInfo> 
                     // this is to ensure that the closing bracket is before another opening bracket
                     } else if capture == '[' && found > idx {
                         break;
-                    } else if capture == '!' && (chars[closing - 1] != '\\' && chars[closing - 1] != '[') {
-                        return Err(ParseErrorInfo::GlobError("Unescaped `!` symbol in a capturing group".to_string()));
+                    } else if capture == '!'
+                        && (chars[closing - 1] != '\\' && chars[closing - 1] != '[')
+                    {
+                        return Err(ParseErrorInfo::GlobError(
+                            "Unescaped `!` symbol in a capturing group".to_string(),
+                        ));
                     }
                     closing += 1;
                 }
@@ -69,7 +75,7 @@ pub fn get_regex_string_from_glob(glob: &str) -> Result<String, ParseErrorInfo> 
                     break;
                 }
                 let directive = chars[idx + 1];
-                if directive == '?' || directive == '*'{
+                if directive == '?' || directive == '*' {
                     result.push(directive);
                     idx += 2; // +1 for ] and +1 for */?
                     continue;
@@ -82,7 +88,9 @@ pub fn get_regex_string_from_glob(glob: &str) -> Result<String, ParseErrorInfo> 
                 result += ".?";
             }
             '!' => {
-                return Err(ParseErrorInfo::GlobError("Unescaped `!` symbol".to_string()));
+                return Err(ParseErrorInfo::GlobError(
+                    "Unescaped `!` symbol".to_string(),
+                ));
             }
             _ => {
                 if chars[idx] == '.' || chars[idx] == '+' {
