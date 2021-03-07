@@ -85,7 +85,7 @@ pub fn get_regex_string_from_glob(glob: &str) -> Result<String, ParseErrorInfo> 
                 return Err(ParseErrorInfo::GlobError("Unescaped `!` symbol".to_string()));
             }
             _ => {
-                if chars[idx] == '.' {
+                if chars[idx] == '.' || chars[idx] == '+' {
                     result.push('\\');
                 }
                 result.push(chars[idx]);

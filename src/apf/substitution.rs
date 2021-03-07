@@ -119,7 +119,7 @@ pub fn get_trim_prefix(origin: &str, pattern: &str, mode: bool, greedy: bool) ->
         }
         trim_pattern = format!("^(?:{})?(.*)$", regex_pattern);
     } else {
-        trim_pattern = format!("^(.*{})(?:{})$", if greedy { "?" } else { "" }, regex_pattern);
+        trim_pattern = format!("^(.*{})(?:{})?$", if greedy { "?" } else { "" }, regex_pattern);
     }
     let regex = Regex::new(&trim_pattern)?;
     if let Some(result) = regex.captures(origin) {

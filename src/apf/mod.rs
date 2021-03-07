@@ -108,7 +108,7 @@ fn get_args_top_level(
                 }))
                 .map(|cmd| get_args_listable(&cmd, context))
                 .collect();
-            println!("{:?}", results);
+            // println!("{:?}", results);
             for r in results {
                 match r {
                     Ok(_) => (),
@@ -144,7 +144,7 @@ fn get_args_pipeable(
     match cmd {
         ast::PipeableCommand::Simple(cmd) => get_args_simple(cmd, context),
         ast::PipeableCommand::Compound(_cmd) => Err(ParseErrorInfo::InvalidSyntax(
-            "Redirection not allowed.".to_string(),
+            "Redirection, `if` or `for` are not allowed.".to_string(),
         )),
         ast::PipeableCommand::FunctionDef(_, _cmd) => Err(ParseErrorInfo::InvalidSyntax(
             "Function definition not allowed.".to_string(),
@@ -184,7 +184,7 @@ fn get_args_simple(
                     Some(w) => w,
                     None => {
                         return Err(ParseErrorInfo::InvalidSyntax(format!(
-                            "Variable {} without value.",
+                            "Variable {} assigned without value.",
                             name
                         )));
                     }
@@ -195,7 +195,7 @@ fn get_args_simple(
             }
             ast::RedirectOrEnvVar::Redirect(_) => {
                 return Err(ParseErrorInfo::InvalidSyntax(
-                    "Redirects not allowed.".to_string(),
+                    "Redirection, `if` or `for` are not allowed.".to_string(),
                 ));
             }
         };
@@ -244,7 +244,7 @@ fn get_simple_word_as_string(
     word: &ast::DefaultSimpleWord,
     context: &Context,
 ) -> Result<String, ParseErrorInfo> {
-    println!("{:?}", word);
+    // println!("{:?}", word);
     match word {
         ast::SimpleWord::Literal(w) => Ok(w.to_string()),
         ast::SimpleWord::Escaped(w) => {
@@ -258,7 +258,7 @@ fn get_simple_word_as_string(
         ast::SimpleWord::Param(p) => match get_parameter_as_string(p, context)? {
             Some(p) => Ok(p),
             None => Err(ParseErrorInfo::ContextError(
-                "Param variable not found.".to_string(),
+                format!("variable '{}' is undefined", p)
             )),
         },
         ast::SimpleWord::Subst(s) => get_subst_result(s, context),
@@ -266,9 +266,7 @@ fn get_simple_word_as_string(
         ast::SimpleWord::Question => Ok("?".to_string()),
         ast::SimpleWord::SquareOpen => Ok("[".to_string()),
         ast::SimpleWord::SquareClose => Ok("]".to_string()),
-        _ => Err(ParseErrorInfo::InvalidSyntax(
-            "Encountered tide, colon or other unsupported characters.".to_string(),
-        )),
+        ast::SimpleWord::Tilde => Ok("~".to_string()),
     }
 }
 
@@ -307,7 +305,7 @@ fn get_subst_result(
     subst: &ast::DefaultParameterSubstitution,
     context: &Context,
 ) -> Result<String, ParseErrorInfo> {
-    println!("{:?}", subst);
+    // println!("{:?}", subst);
     match subst {
         ast::ParameterSubstitution::ReplaceString(param, command) => {
             let origin = get_subst_origin(param, context)?;
