@@ -61,6 +61,7 @@ pub fn parse(c: &str, context: &mut Context) -> Result<(), ParseError> {
     let mut parser = DefaultParser::new(lex);
 
     loop {
+        let prev_pos = parser.pos();
         let cmd = match parser.complete_command() {
             Ok(x) => x,
             Err(e) => {
@@ -78,10 +79,9 @@ pub fn parse(c: &str, context: &mut Context) -> Result<(), ParseError> {
                 match get_args_top_level(&cmd, context) {
                     Ok(_) => (),
                     Err(e) => {
-                        let pos = parser.pos();
                         return Err(ParseError {
-                            line: pos.line,
-                            col: pos.col,
+                            line: prev_pos.line,
+                            col: prev_pos.col,
                             error: e,
                         });
                     }
@@ -262,8 +262,12 @@ fn get_simple_word_as_string(
             )),
         },
         ast::SimpleWord::Subst(s) => get_subst_result(s, context),
+        ast::SimpleWord::Star => Ok("*".to_string()),
+        ast::SimpleWord::Question => Ok("?".to_string()),
+        ast::SimpleWord::SquareOpen => Ok("[".to_string()),
+        ast::SimpleWord::SquareClose => Ok("]".to_string()),
         _ => Err(ParseErrorInfo::InvalidSyntax(
-            "Encountered star, square, tide, or other unsupported chatacters.".to_string(),
+            "Encountered tide, colon or other unsupported characters.".to_string(),
         )),
     }
 }
@@ -342,6 +346,128 @@ fn get_subst_result(
             };
 
             substitution::get_substring(&origin, &command)
+        }
+        ast::ParameterSubstitution::Error(colon, param, command) => {
+            let origin = get_subst_origin(param, context);
+            if let Ok(origin) = origin {
+                if !colon || !origin.is_empty() {
+                    return Ok(origin);
+                }
+            }
+            let command = match command {
+                Some(c) => get_complex_word_as_string(c, context)?,
+                None => {
+                    return Err(ParseErrorInfo::InvalidSyntax(
+                        "No error message provided".to_string(),
+                    ));
+                }
+            };
+
+            Err(ParseErrorInfo::SubstitutionError(format!(
+                "{} undefined: {}",
+                param, command
+            )))
+        }
+        ast::ParameterSubstitution::Len(param) => {
+            let origin = get_subst_origin(param, context)?;
+
+            Ok(format!("{}", origin.len()))
+        }
+        ast::ParameterSubstitution::Command(_) => Err(ParseErrorInfo::SubstitutionError(
+            "Command substitution is not allowed.".to_string(),
+        )),
+        ast::ParameterSubstitution::Default(colon, param, command) => {
+            let origin = get_subst_origin(param, context);
+            if let Ok(origin) = origin {
+                if !colon || !origin.is_empty() {
+                    return Ok(origin);
+                }
+            }
+
+            let command = match command {
+                Some(c) => get_complex_word_as_string(c, context)?,
+                None => {
+                    return Err(ParseErrorInfo::InvalidSyntax(
+                        "No default value provided".to_string(),
+                    ));
+                }
+            };
+
+            Ok(command)
+        }
+        ast::ParameterSubstitution::Alternative(colon, param, command) => {
+            let origin = get_subst_origin(param, context);
+            match origin {
+                Ok(origin) => {
+                    if *colon && origin.is_empty() {
+                        return Ok(String::new())
+                    }
+                }
+                Err(_) => return Ok(String::new()),
+            }
+
+            let command = match command {
+                Some(c) => get_complex_word_as_string(c, context)?,
+                None => {
+                    return Err(ParseErrorInfo::InvalidSyntax(
+                        "No alternative value provided".to_string(),
+                    ));
+                }
+            };
+
+            Ok(command)
+        }
+        ast::ParameterSubstitution::RemoveSmallestPrefix(param, command) => {
+            let origin = get_subst_origin(param, context)?;
+            let command = match command {
+                Some(c) => get_complex_word_as_string(c, context)?,
+                None => {
+                    return Err(ParseErrorInfo::InvalidSyntax(
+                        "No substring command provided".to_string(),
+                    ));
+                }
+            };
+
+            substitution::get_trim_prefix(&origin, &command, true, false)
+        }
+        ast::ParameterSubstitution::RemoveLargestPrefix(param, command) => {
+            let origin = get_subst_origin(param, context)?;
+            let command = match command {
+                Some(c) => get_complex_word_as_string(c, context)?,
+                None => {
+                    return Err(ParseErrorInfo::InvalidSyntax(
+                        "No substring command provided".to_string(),
+                    ));
+                }
+            };
+
+            substitution::get_trim_prefix(&origin, &command, true, true)
+        }
+        ast::ParameterSubstitution::RemoveSmallestSuffix(param, command) => {
+            let origin = get_subst_origin(param, context)?;
+            let command = match command {
+                Some(c) => get_complex_word_as_string(c, context)?,
+                None => {
+                    return Err(ParseErrorInfo::InvalidSyntax(
+                        "No substring command provided".to_string(),
+                    ));
+                }
+            };
+
+            substitution::get_trim_prefix(&origin, &command, false, false)
+        }
+        ast::ParameterSubstitution::RemoveLargestSuffix(param, command) => {
+            let origin = get_subst_origin(param, context)?;
+            let command = match command {
+                Some(c) => get_complex_word_as_string(c, context)?,
+                None => {
+                    return Err(ParseErrorInfo::InvalidSyntax(
+                        "No substring command provided".to_string(),
+                    ));
+                }
+            };
+
+            substitution::get_trim_prefix(&origin, &command, false, true)
         }
         _ => {
             todo!()
