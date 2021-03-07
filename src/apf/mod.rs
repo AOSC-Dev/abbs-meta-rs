@@ -468,6 +468,28 @@ fn get_subst_result(
 
             substitution::get_trim_prefix(&origin, &command, false, true)
         }
+        ast::ParameterSubstitution::Lowercase(all, param, command) => {
+            let origin = get_subst_origin(param, context)?;
+            let command = match command {
+                Some(c) => get_complex_word_as_string(c, context)?,
+                None => {
+                    return substitution::get_lower_case(&origin, None, *all);
+                }
+            };
+
+            substitution::get_lower_case(&origin, Some(&command), *all)
+        }
+        ast::ParameterSubstitution::Uppercase(all, param, command) => {
+            let origin = get_subst_origin(param, context)?;
+            let command = match command {
+                Some(c) => get_complex_word_as_string(c, context)?,
+                None => {
+                    return substitution::get_upper_case(&origin, None, *all);
+                }
+            };
+
+            substitution::get_upper_case(&origin, Some(&command), *all)
+        }
         ast::ParameterSubstitution::Assign(_, param, _) => {
             return Err(ParseErrorInfo::InvalidSyntax(format!(
                 "Variable assignment ({}) inside a substitution is not allowed",

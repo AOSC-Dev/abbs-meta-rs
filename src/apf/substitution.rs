@@ -142,6 +142,76 @@ pub fn get_trim_prefix(
     ))
 }
 
+#[inline]
+fn lowercase_first_letter(s: &str) -> String {
+    let mut c = s.chars();
+    match c.next() {
+        None => String::new(),
+        Some(f) => f.to_lowercase().collect::<String>() + c.as_str(),
+    }
+}
+
+#[inline]
+fn uppercase_first_letter(s: &str) -> String {
+    let mut c = s.chars();
+    match c.next() {
+        None => String::new(),
+        Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+    }
+}
+
+pub fn get_lower_case(
+    origin: &str,
+    pattern: Option<&str>,
+    all: bool,
+) -> Result<String, ParseErrorInfo> {
+    if pattern.is_none() {
+        if all {
+            return Ok(origin.to_lowercase())
+        } else {
+            return Ok(lowercase_first_letter(origin));
+        }
+    }
+
+    let pattern = get_regex_string_from_glob(&pattern.unwrap())?;
+    let matcher = Regex::new(&pattern)?;
+    let mut output = String::new();
+    for c in pattern.chars() {
+        if matcher.is_match(&c.to_string()) {
+            output += &c.to_lowercase().to_string();
+            continue;
+        }
+        output += &c.to_string();
+    }
+    Ok(output)
+}
+
+pub fn get_upper_case(
+    origin: &str,
+    pattern: Option<&str>,
+    all: bool,
+) -> Result<String, ParseErrorInfo> {
+    if pattern.is_none() {
+        if all {
+            return Ok(origin.to_uppercase())
+        } else {
+            return Ok(uppercase_first_letter(origin));
+        }
+    }
+
+    let pattern = get_regex_string_from_glob(&pattern.unwrap())?;
+    let matcher = Regex::new(&pattern)?;
+    let mut output = String::new();
+    for c in pattern.chars() {
+        if matcher.is_match(&c.to_string()) {
+            output += &c.to_uppercase().to_string();
+            continue;
+        }
+        output += &c.to_string();
+    }
+    Ok(output)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
