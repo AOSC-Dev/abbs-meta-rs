@@ -8,3 +8,5 @@ edition = "2018"
 anyhow = "1"
 conch-parser = { git = "https://github.com/liushuyu/conch-parser" }
 regex = "1"
+aho-corasick = "0.7"
+annotate-snippets = { version = "0.9.0", features = ["color"] }

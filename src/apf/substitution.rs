@@ -1,4 +1,4 @@
-use super::{glob::get_regex_string_from_glob, ParseErrorInfo};
+use super::{error::ParseErrorInfo, glob::get_regex_string_from_glob};
 
 use regex::Regex;
 use std::cmp;
@@ -15,7 +15,7 @@ pub fn get_substring(origin: &str, command: &str) -> Result<String, ParseErrorIn
         _ => {
             return Err(ParseErrorInfo::SubstitutionError(
                 "Bad substring command.".to_string(),
-                command.to_string()
+                command.to_string(),
             ));
         }
     };

@@ -1,4 +1,4 @@
-use super::ParseErrorInfo;
+use super::error::ParseErrorInfo;
 
 pub fn get_regex_string_from_glob(glob: &str) -> Result<String, ParseErrorInfo> {
     let mut result = String::new();
