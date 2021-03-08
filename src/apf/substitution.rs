@@ -13,8 +13,9 @@ pub fn get_substring(origin: &str, command: &str) -> Result<String, ParseErrorIn
             (parse_number(commands[0])?, Some(parse_number(commands[1])?))
         }
         _ => {
-            return Err(ParseErrorInfo::InvalidSyntax(
+            return Err(ParseErrorInfo::SubstitutionError(
                 "Bad substring command.".to_string(),
+                command.to_string()
             ));
         }
     };
@@ -91,8 +92,9 @@ pub fn get_replace(origin: &str, command: &str, all: bool) -> Result<String, Par
             (commands[0].to_string(), commands[1].to_string())
         }
         _ => {
-            return Err(ParseErrorInfo::InvalidSyntax(
+            return Err(ParseErrorInfo::SubstitutionError(
                 "Invalid replace command.".to_string(),
+                command.to_string(),
             ));
         }
     };

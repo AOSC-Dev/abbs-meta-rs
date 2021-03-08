@@ -1,6 +1,11 @@
 mod glob;
 mod substitution;
 
+use aho_corasick::{AhoCorasickBuilder, MatchKind};
+use annotate_snippets::{
+    display_list::{DisplayList, FormatOptions},
+    snippet::{Annotation, AnnotationType, Slice, Snippet, SourceAnnotation},
+};
 use conch_parser::ast;
 use conch_parser::lexer::Lexer;
 use conch_parser::parse::DefaultParser;
@@ -12,16 +17,104 @@ type Context = HashMap<String, String>;
 pub struct ParseError {
     line: usize,
     col: usize,
+    byte: usize,
+    prev_byte: usize,
     error: ParseErrorInfo,
 }
 
 #[derive(Debug)]
 pub enum ParseErrorInfo {
+    LexerError(String),
     InvalidSyntax(String),
-    ContextError(String),
-    SubstitutionError(String),
+    ContextError(String, String),
+    SubstitutionError(String, String),
     GlobError(String),
     RegexError(String),
+}
+
+#[inline]
+fn locate_keyword(source: &str, keyword: &str, start: usize, end: usize) -> Option<(usize, usize)> {
+    let search = AhoCorasickBuilder::new()
+        .match_kind(MatchKind::LeftmostLongest)
+        .build(&[
+            format!("${{{}", keyword).as_str(),
+            format!("${}", keyword).as_str(),
+        ]);
+    if start > end {
+        return None;
+    }
+    let range = search.find(&source.as_bytes()[start..end]);
+    if let Some(range) = range {
+        return Some((range.start(), range.end()));
+    }
+
+    None
+}
+
+macro_rules! var_name {
+    ($name:ident) => {{
+        if let ast::Parameter::Var(name) = $name {
+            name.to_owned()
+        } else {
+            $name.to_string()
+        }
+    }};
+}
+
+impl ParseError {
+    pub fn pretty_print(&self, source: &str, filename: &str) -> String {
+        let (err_type, reason, keyword) = match &self.error {
+            ParseErrorInfo::InvalidSyntax(r) => ("Invalid syntax", r, None),
+            ParseErrorInfo::ContextError(r, kw) => ("Context error", r, Some(kw)),
+            ParseErrorInfo::SubstitutionError(r, kw) => ("Substitution error", r, Some(kw)),
+            ParseErrorInfo::GlobError(r) => ("Glob translation error", r, None),
+            ParseErrorInfo::RegexError(r) => ("Regex error", r, None),
+            ParseErrorInfo::LexerError(r) => ("Invalid or unsupported syntax", r, None),
+        };
+        let mut start_marker = self.prev_byte;
+        let mut end_marker = self.byte;
+        if let Some(keyword) = keyword {
+            if let Some((start, end)) = locate_keyword(source, keyword, start_marker, end_marker) {
+                end_marker = start_marker + end;
+                start_marker += start;
+            }
+        }
+
+        match &self.error {
+            ParseErrorInfo::LexerError(_) => {
+                start_marker = self.byte - 1;
+                end_marker = self.byte;
+            }
+            _ => (),
+        }
+        let marker = SourceAnnotation {
+            label: reason,
+            annotation_type: AnnotationType::Error,
+            range: (start_marker, end_marker),
+        };
+        let title = Annotation {
+            label: Some(err_type),
+            id: None,
+            annotation_type: AnnotationType::Error,
+        };
+        let snippet = Snippet {
+            title: Some(title),
+            footer: vec![],
+            slices: vec![Slice {
+                source: source,
+                line_start: 1,
+                origin: Some(filename),
+                fold: true,
+                annotations: vec![marker],
+            }],
+            opt: FormatOptions {
+                color: true,
+                ..Default::default()
+            },
+        };
+        let list = DisplayList::from(snippet);
+        list.to_string()
+    }
 }
 
 impl From<regex::Error> for ParseErrorInfo {
@@ -40,10 +133,11 @@ impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let (err_type, reason) = match &self.error {
             ParseErrorInfo::InvalidSyntax(r) => ("Invalid syntax", r),
-            ParseErrorInfo::ContextError(r) => ("Context error", r),
-            ParseErrorInfo::SubstitutionError(r) => ("Substitution error", r),
+            ParseErrorInfo::ContextError(r, _) => ("Context error", r),
+            ParseErrorInfo::SubstitutionError(r, _) => ("Substitution error", r),
             ParseErrorInfo::GlobError(r) => ("Glob translation error", r),
             ParseErrorInfo::RegexError(r) => ("Regex error", r),
+            ParseErrorInfo::LexerError(r) => ("Invalid or unsupported syntax", r),
         };
 
         write!(
@@ -69,7 +163,9 @@ pub fn parse(c: &str, context: &mut Context) -> Result<(), ParseError> {
                 return Err(ParseError {
                     line: pos.line,
                     col: pos.col,
-                    error: ParseErrorInfo::InvalidSyntax(e.to_string()),
+                    byte: pos.byte,
+                    prev_byte: prev_pos.byte,
+                    error: ParseErrorInfo::LexerError(e.to_string()),
                 });
             }
         };
@@ -79,9 +175,12 @@ pub fn parse(c: &str, context: &mut Context) -> Result<(), ParseError> {
                 match get_args_top_level(&cmd, context) {
                     Ok(_) => (),
                     Err(e) => {
+                        let pos = parser.pos();
                         return Err(ParseError {
-                            line: prev_pos.line,
-                            col: prev_pos.col,
+                            line: pos.line,
+                            col: pos.col,
+                            byte: pos.byte,
+                            prev_byte: prev_pos.byte,
                             error: e,
                         });
                     }
@@ -108,7 +207,6 @@ fn get_args_top_level(
                 }))
                 .map(|cmd| get_args_listable(&cmd, context))
                 .collect();
-            // println!("{:?}", results);
             for r in results {
                 match r {
                     Ok(_) => (),
@@ -243,7 +341,6 @@ fn get_simple_word_as_string(
     word: &ast::DefaultSimpleWord,
     context: &Context,
 ) -> Result<String, ParseErrorInfo> {
-    // println!("{:?}", word);
     match word {
         ast::SimpleWord::Literal(w) => Ok(w.to_string()),
         ast::SimpleWord::Escaped(w) => {
@@ -256,10 +353,10 @@ fn get_simple_word_as_string(
         ast::SimpleWord::Colon => Ok(":".to_string()),
         ast::SimpleWord::Param(p) => match get_parameter_as_string(p, context)? {
             Some(p) => Ok(p),
-            None => Err(ParseErrorInfo::ContextError(format!(
-                "variable '{}' is undefined",
-                p
-            ))),
+            None => Err(ParseErrorInfo::ContextError(
+                format!("variable '{}' is undefined", var_name!(p)),
+                var_name!(p),
+            )),
         },
         ast::SimpleWord::Subst(s) => get_subst_result(s, context),
         ast::SimpleWord::Star => Ok("*".to_string()),
@@ -280,7 +377,7 @@ fn get_parameter_as_string(
             None => Ok(None),
         },
         _ => Err(ParseErrorInfo::InvalidSyntax(
-            "Unsupported parameter.".to_string(),
+            "Unsupported parameter type.".to_string(),
         )),
     }
 }
@@ -292,10 +389,10 @@ fn get_subst_origin(
     let origin = match get_parameter_as_string(param, context)? {
         Some(p) => p,
         None => {
-            return Err(ParseErrorInfo::ContextError(format!(
-                "Param {} not found.",
-                param
-            )));
+            return Err(ParseErrorInfo::ContextError(
+                format!("variable '{}' is undefined", var_name!(param)),
+                var_name!(param),
+            ));
         }
     };
     Ok(origin)
@@ -305,15 +402,15 @@ fn get_subst_result(
     subst: &ast::DefaultParameterSubstitution,
     context: &Context,
 ) -> Result<String, ParseErrorInfo> {
-    // println!("{:?}", subst);
     match subst {
         ast::ParameterSubstitution::ReplaceString(param, command) => {
             let origin = get_subst_origin(param, context)?;
             let command = match command {
                 Some(c) => get_complex_word_as_string(c, context)?,
                 None => {
-                    return Err(ParseErrorInfo::InvalidSyntax(
+                    return Err(ParseErrorInfo::SubstitutionError(
                         "No substring command provided".to_string(),
+                        var_name!(param),
                     ));
                 }
             };
@@ -325,8 +422,9 @@ fn get_subst_result(
             let command = match command {
                 Some(c) => get_complex_word_as_string(c, context)?,
                 None => {
-                    return Err(ParseErrorInfo::InvalidSyntax(
+                    return Err(ParseErrorInfo::SubstitutionError(
                         "No substring command provided".to_string(),
+                        var_name!(param),
                     ));
                 }
             };
@@ -337,8 +435,9 @@ fn get_subst_result(
             let command = match command {
                 Some(c) => get_complex_word_as_string(c, context)?,
                 None => {
-                    return Err(ParseErrorInfo::InvalidSyntax(
+                    return Err(ParseErrorInfo::SubstitutionError(
                         "No substring command provided".to_string(),
+                        var_name!(param),
                     ));
                 }
             };
@@ -355,23 +454,24 @@ fn get_subst_result(
             let command = match command {
                 Some(c) => get_complex_word_as_string(c, context)?,
                 None => {
-                    return Err(ParseErrorInfo::InvalidSyntax(
+                    return Err(ParseErrorInfo::SubstitutionError(
                         "No error message provided".to_string(),
+                        var_name!(param),
                     ));
                 }
             };
 
-            Err(ParseErrorInfo::SubstitutionError(format!(
-                "{} undefined: {}",
-                param, command
-            )))
+            Err(ParseErrorInfo::SubstitutionError(
+                format!("{} undefined: {}", param, command),
+                var_name!(param),
+            ))
         }
         ast::ParameterSubstitution::Len(param) => {
             let origin = get_subst_origin(param, context)?;
 
             Ok(format!("{}", origin.len()))
         }
-        ast::ParameterSubstitution::Command(_) => Err(ParseErrorInfo::SubstitutionError(
+        ast::ParameterSubstitution::Command(_) => Err(ParseErrorInfo::InvalidSyntax(
             "Command substitution is not allowed.".to_string(),
         )),
         ast::ParameterSubstitution::Default(colon, param, command) => {
@@ -385,8 +485,9 @@ fn get_subst_result(
             let command = match command {
                 Some(c) => get_complex_word_as_string(c, context)?,
                 None => {
-                    return Err(ParseErrorInfo::InvalidSyntax(
+                    return Err(ParseErrorInfo::SubstitutionError(
                         "No default value provided".to_string(),
+                        var_name!(param),
                     ));
                 }
             };
@@ -407,8 +508,9 @@ fn get_subst_result(
             let command = match command {
                 Some(c) => get_complex_word_as_string(c, context)?,
                 None => {
-                    return Err(ParseErrorInfo::InvalidSyntax(
+                    return Err(ParseErrorInfo::SubstitutionError(
                         "No alternative value provided".to_string(),
+                        var_name!(param),
                     ));
                 }
             };
@@ -420,8 +522,9 @@ fn get_subst_result(
             let command = match command {
                 Some(c) => get_complex_word_as_string(c, context)?,
                 None => {
-                    return Err(ParseErrorInfo::InvalidSyntax(
+                    return Err(ParseErrorInfo::SubstitutionError(
                         "No substring command provided".to_string(),
+                        var_name!(param),
                     ));
                 }
             };
@@ -433,8 +536,9 @@ fn get_subst_result(
             let command = match command {
                 Some(c) => get_complex_word_as_string(c, context)?,
                 None => {
-                    return Err(ParseErrorInfo::InvalidSyntax(
+                    return Err(ParseErrorInfo::SubstitutionError(
                         "No substring command provided".to_string(),
+                        var_name!(param),
                     ));
                 }
             };
@@ -446,8 +550,9 @@ fn get_subst_result(
             let command = match command {
                 Some(c) => get_complex_word_as_string(c, context)?,
                 None => {
-                    return Err(ParseErrorInfo::InvalidSyntax(
+                    return Err(ParseErrorInfo::SubstitutionError(
                         "No substring command provided".to_string(),
+                        var_name!(param),
                     ));
                 }
             };
@@ -459,8 +564,9 @@ fn get_subst_result(
             let command = match command {
                 Some(c) => get_complex_word_as_string(c, context)?,
                 None => {
-                    return Err(ParseErrorInfo::InvalidSyntax(
+                    return Err(ParseErrorInfo::SubstitutionError(
                         "No substring command provided".to_string(),
+                        var_name!(param),
                     ));
                 }
             };
@@ -489,17 +595,19 @@ fn get_subst_result(
 
             substitution::get_upper_case(&origin, Some(&command), *all)
         }
-        ast::ParameterSubstitution::Assign(_, param, _) => {
-            Err(ParseErrorInfo::InvalidSyntax(format!(
+        ast::ParameterSubstitution::Assign(_, param, _) => Err(ParseErrorInfo::SubstitutionError(
+            format!(
                 "Variable assignment ({}) inside a substitution is not allowed",
                 param
-            )))
-        }
-        ast::ParameterSubstitution::Arith(command) => {
-            Err(ParseErrorInfo::InvalidSyntax(format!(
+            ),
+            var_name!(param),
+        )),
+        ast::ParameterSubstitution::Arith(command) => Err(ParseErrorInfo::SubstitutionError(
+            format!(
                 "Arithmetic operation ({:?}) inside a substitution is not supported",
                 command
-            )))
-        }
+            ),
+            "((".to_string(),
+        )),
     }
 }
