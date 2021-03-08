@@ -29,9 +29,9 @@ impl From<regex::Error> for ParseErrorInfo {
         match err {
             regex::Error::Syntax(s) => ParseErrorInfo::RegexError(format!("Syntax error: {}", s)),
             regex::Error::CompiledTooBig(_size) => {
-                ParseErrorInfo::RegexError(format!("Compiled syntax too big."))
+                ParseErrorInfo::RegexError("Compiled syntax too big.".to_string())
             }
-            _ => ParseErrorInfo::RegexError(format!("Internal regex error.")),
+            _ => ParseErrorInfo::RegexError("Internal regex error.".to_string()),
         }
     }
 }
@@ -166,11 +166,10 @@ fn get_args_simple(
     if cmd
         .redirects_or_env_vars
         .iter()
-        .find(|redirect_or_word| match redirect_or_word {
+        .any(|redirect_or_word| match redirect_or_word {
             ast::RedirectOrEnvVar::EnvVar(_name, _value) => false,
             ast::RedirectOrEnvVar::Redirect(_) => true,
         })
-        .is_some()
     {
         return Err(ParseErrorInfo::InvalidSyntax(
             "Redirects not allowed.".to_string(),
@@ -227,7 +226,7 @@ fn get_word_as_string(
 ) -> Result<String, ParseErrorInfo> {
     let result = match word {
         ast::Word::SingleQuoted(w) => w.to_string(),
-        ast::Word::Simple(w) => get_simple_word_as_string(w, context)?.to_string(),
+        ast::Word::Simple(w) => get_simple_word_as_string(w, context)?,
         ast::Word::DoubleQuoted(words) => {
             let mut value = String::new();
             for w in words {
@@ -491,16 +490,16 @@ fn get_subst_result(
             substitution::get_upper_case(&origin, Some(&command), *all)
         }
         ast::ParameterSubstitution::Assign(_, param, _) => {
-            return Err(ParseErrorInfo::InvalidSyntax(format!(
+            Err(ParseErrorInfo::InvalidSyntax(format!(
                 "Variable assignment ({}) inside a substitution is not allowed",
                 param
-            )));
+            )))
         }
         ast::ParameterSubstitution::Arith(command) => {
-            return Err(ParseErrorInfo::InvalidSyntax(format!(
+            Err(ParseErrorInfo::InvalidSyntax(format!(
                 "Arithmetic operation ({:?}) inside a substitution is not supported",
                 command
-            )));
+            )))
         }
     }
 }

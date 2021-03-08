@@ -61,7 +61,7 @@ pub fn get_regex_string_from_glob(glob: &str) -> Result<String, ParseErrorInfo> 
                     result.push('^');
                     idx += 1;
                 }
-                for c in chars[idx..found].into_iter() {
+                for c in chars[idx..found].iter() {
                     if *c == '[' || *c == ']' {
                         result.push('\\');
                     }

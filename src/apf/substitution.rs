@@ -9,7 +9,7 @@ pub fn get_substring(origin: &str, command: &str) -> Result<String, ParseErrorIn
     let (begin, length) = match command.chars().filter(|c| c == &':').count() {
         0 => (parse_number(command)?, None),
         1 => {
-            let commands: Vec<&str> = command.split(":").collect();
+            let commands: Vec<&str> = command.split(':').collect();
             (parse_number(commands[0])?, Some(parse_number(commands[1])?))
         }
         _ => {
@@ -43,7 +43,7 @@ pub fn get_substring(origin: &str, command: &str) -> Result<String, ParseErrorIn
 
 fn parse_number(s: &str) -> Result<isize, ParseErrorInfo> {
     // Bash magic!
-    if s.len() == 0 {
+    if s.is_empty() {
         return Ok(0);
     }
     let left_bracket_count = s.chars().filter(|c| c == &'(').count();
@@ -87,7 +87,7 @@ fn get_chars_without_escape(c: &char, s: &str) -> usize {
 pub fn get_replace(origin: &str, command: &str, all: bool) -> Result<String, ParseErrorInfo> {
     let (from, to) = match get_chars_without_escape(&'/', command) {
         1 => {
-            let commands: Vec<&str> = command.split("/").collect();
+            let commands: Vec<&str> = command.split('/').collect();
             (commands[0].to_string(), commands[1].to_string())
         }
         _ => {
@@ -167,7 +167,7 @@ pub fn get_lower_case(
 ) -> Result<String, ParseErrorInfo> {
     if pattern.is_none() {
         if all {
-            return Ok(origin.to_lowercase())
+            return Ok(origin.to_lowercase());
         } else {
             return Ok(lowercase_first_letter(origin));
         }
@@ -193,7 +193,7 @@ pub fn get_upper_case(
 ) -> Result<String, ParseErrorInfo> {
     if pattern.is_none() {
         if all {
-            return Ok(origin.to_uppercase())
+            return Ok(origin.to_uppercase());
         } else {
             return Ok(uppercase_first_letter(origin));
         }
