@@ -1,0 +1,10 @@
+[package]
+name = "abbs-meta-tree"
+version = "0.1.0"
+authors = ["Leo Shen <i@szclsya.me>", "liushuyu <liushuyu011@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+abbs-meta-apml = { path = "../apml" }
+anyhow = "1"
+walkdir = "*"
