@@ -47,7 +47,19 @@ fn parse_whole_tree() -> Result<()> {
 }
 
 #[test]
-fn test_single_file() -> Result<()> {
+fn test_simple() -> Result<()> {
+    let content = "ABC='123'\nBCD=${ABC};A__C=${BCD/3/1}\n".to_string();
+    let mut context = HashMap::new();
+    parse(&content, &mut context)?;
+    assert_eq!(context.get("ABC"), Some(&"123".to_string()));
+    assert_eq!(context.get("BCD"), Some(&"123".to_string()));
+    assert_eq!(context.get("A__C"), Some(&"121".to_string()));
+
+    Ok(())
+}
+
+#[test]
+fn test_single_file_failure() -> Result<()> {
     let content = "ABC='123'\nBCD=${NO}\n".to_string();
     let mut context = HashMap::new();
     let result = parse(&content, &mut context);
