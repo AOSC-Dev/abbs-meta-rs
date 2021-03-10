@@ -1,11 +1,9 @@
-use abbs_meta_apml::ParseError;
 use std::fmt;
 
 #[derive(Debug)]
 pub enum PackageError {
     MissingField(String),
     FieldTypeError(String, String),
-    ParseError(ParseError),
 }
 
 impl fmt::Display for PackageError {
@@ -20,9 +18,6 @@ impl fmt::Display for PackageError {
                     "Field {} cannot be parsed as {}.",
                     field_name, supposed_type
                 )
-            }
-            PackageError::ParseError(err) => {
-                write!(f, "{}", err)
             }
         }
     }
