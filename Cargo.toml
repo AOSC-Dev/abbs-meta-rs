@@ -3,3 +3,7 @@ members = [
     "apml",
     "dumper",
 ]
+
+
+[profile.release]
+lto = "fat"
