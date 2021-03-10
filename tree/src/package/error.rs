@@ -13,9 +13,13 @@ impl fmt::Display for PackageError {
         match self {
             PackageError::MissingField(field_name) => {
                 write!(f, "Field {} missing.", &field_name)
-            },
+            }
             PackageError::FieldTypeError(field_name, supposed_type) => {
-                write!(f, "Field {} cannot be parsed as {}.", field_name, supposed_type)
+                write!(
+                    f,
+                    "Field {} cannot be parsed as {}.",
+                    field_name, supposed_type
+                )
             }
             PackageError::ParseError(err) => {
                 write!(f, "{}", err)
