@@ -15,7 +15,7 @@ def compare_dumps(spec: bool) -> bool:
             print(f'{k}: Missing from reference')
         if v != ref:
             print(
-                f'{k}: Different from reference:\nRef: {ref}\n===\nNew: {v}\n------------------------')
+                f'{k}: Different from reference:\n------------------------\nRef: {ref}\n===\nNew: {v}\n------------------------')
             diffs += 1
     print(f'Found {diffs} differences between implementations')
     return diffs > 0
