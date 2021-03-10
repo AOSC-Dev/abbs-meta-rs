@@ -1,7 +1,6 @@
 use abbs_meta_apml;
 use abbs_meta_apml::{parse, ParseError};
 use anyhow::Result;
-use serde::Serialize;
 use std::{
     collections::HashMap,
     fs::File,
@@ -10,15 +9,27 @@ use std::{
 };
 
 type Context = HashMap<String, String>;
+const DUMMY_AB_IMPORT: &[&'static str] = &["SRCDIR", "PKGDIR", "PKGVER", "PKGREL", "ARCH"];
 
-fn try_parse(content: &str) -> Result<Context, ParseError> {
+#[inline]
+fn try_parse(content: &str, dummy_import: bool) -> Result<Context, ParseError> {
     let mut context = HashMap::new();
+    if dummy_import {
+        for pred in DUMMY_AB_IMPORT {
+            context.insert(pred.to_string(), String::new());
+        }
+    }
     parse(content, &mut context)?;
+    if dummy_import {
+        for pred in DUMMY_AB_IMPORT {
+            context.remove(&pred.to_string());
+        }
+    }
 
     Ok(context)
 }
 
-fn dump_whole_tree(is_spec: bool) -> Result<String> {
+fn dump_whole_tree(is_spec: bool, dummy_import: bool) -> Result<String> {
     // Code for speed testing
     let spec_dir = std::env::var("SPEC_DIR")?;
     let mut dump: HashMap<String, Context> = HashMap::new();
@@ -45,10 +56,11 @@ fn dump_whole_tree(is_spec: bool) -> Result<String> {
         let mut content = String::new();
         f.read_to_string(&mut content).unwrap();
         total += 1;
-        if let Ok(context) = try_parse(&content) {
+        if let Ok(context) = try_parse(&content, dummy_import && !is_spec) {
             let name = p.strip_prefix(&spec_dir)?;
             dump.insert(name.to_string_lossy().to_string(), context);
         } else {
+            println!("{:?}", p);
             errors += 1;
         }
     }
@@ -64,11 +76,11 @@ fn dump_whole_tree(is_spec: bool) -> Result<String> {
 
 fn main() -> Result<()> {
     println!("[ spec  ] Collecting variables ...");
-    let dump = dump_whole_tree(true)?;
+    let dump = dump_whole_tree(true, true)?;
     let mut f = File::create("/tmp/all_vars_rs.json")?;
     f.write_all(dump.as_bytes())?;
     println!("[defines] Collecting variables ...");
-    let dump = dump_whole_tree(false)?;
+    let dump = dump_whole_tree(false, true)?;
     let mut f = File::create("/tmp/all_vars_def_rs.json")?;
     f.write_all(dump.as_bytes())?;
 
