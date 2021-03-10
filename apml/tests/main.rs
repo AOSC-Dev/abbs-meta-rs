@@ -1,4 +1,4 @@
-use abbs_meta::{parse, ParseError};
+use abbs_meta_apml::{parse, ParseError};
 
 use anyhow::{anyhow, Result};
 use std::collections::HashMap;
@@ -16,10 +16,12 @@ fn try_parse(content: &str) -> Result<(), ParseError> {
 fn parse_whole_tree() -> Result<()> {
     // Code for speed testing
     let mut defines = Vec::new();
+    let mut errors = 0usize;
+    let mut total = 0usize;
     let walker = walkdir::WalkDir::new(std::env::var("SPEC_DIR")?).max_depth(4);
     for entry in walker.into_iter() {
         let file = entry?;
-        if file.file_name() == "defines" {
+        if file.file_name() == "spec" {
             let path = PathBuf::from(file.path());
             defines.push(path);
         }
@@ -29,13 +31,12 @@ fn parse_whole_tree() -> Result<()> {
         let mut f = File::open(&p).unwrap();
         let mut content = String::new();
         f.read_to_string(&mut content).unwrap();
-        if let Err(e) = try_parse(&content) {
-            eprintln!(
-                "{}",
-                e.pretty_print(&content, &p.as_path().to_string_lossy())
-            );
+        total += 1;
+        if let Err(_) = try_parse(&content) {
+            errors += 1;
         }
     }
+    println!("Total: {}, Errors: {} ({}%)", total, errors, errors * 100 / total);
 
     Ok(())
 }
@@ -45,8 +46,7 @@ fn test_single_file() -> Result<()> {
     let content = "ABC='123'\nBCD=${NO}\n".to_string();
     let mut context = HashMap::new();
     let result = parse(&content, &mut context);
-    if let Err(e) = result {
-        println!("{}", e.pretty_print(&content, "test.sh"));
+    if let Err(_) = result {
         return Ok(());
     }
 
