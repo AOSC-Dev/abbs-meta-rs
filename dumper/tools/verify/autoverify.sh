@@ -31,7 +31,7 @@ cd "$CURRENT_DIR"
 echo 'Building apml ...'
 cargo build --release
 echo 'Collecting apml data ...'
-./target/release/abbs-meta-dump
+./target/release/abbs-meta-dump > stdout.log
 echo 'Comparing implementations ...'
 python3 ./dumper/tools/verify/verifier.py
 

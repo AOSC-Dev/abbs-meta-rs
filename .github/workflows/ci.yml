@@ -16,3 +16,5 @@ jobs:
         run: ./dumper/tools/verify/autoverify.sh || true
         env:
           PRINT_ERROR: 'ON'
+      - name: 'Print errors'
+        run: cat stdout.log
