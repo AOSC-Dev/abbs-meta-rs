@@ -31,12 +31,21 @@ impl Package {
             release: match context.get("PKGREL") {
                 Some(rel) => match rel.parse() {
                     Ok(rel) => Some(rel),
-                    Err(_e) => return Err(PackageError::FieldTypeError("PKGREL".to_string(), "unsigned int".to_string()))
+                    Err(_e) => {
+                        return Err(PackageError::FieldTypeError(
+                            "PKGREL".to_string(),
+                            "unsigned int".to_string(),
+                        ))
+                    }
                 },
-                None => None
+                None => None,
             },
-            dependencies: get_items_from_bash_string(context.get("PKGDEP").unwrap_or(&String::new())),
-            build_dependencies: get_items_from_bash_string(context.get("BUILDDEP").unwrap_or(&String::new())),
+            dependencies: get_items_from_bash_string(
+                context.get("PKGDEP").unwrap_or(&String::new()),
+            ),
+            build_dependencies: get_items_from_bash_string(
+                context.get("BUILDDEP").unwrap_or(&String::new()),
+            ),
         };
 
         Ok(res)
