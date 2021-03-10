@@ -32,6 +32,11 @@ fn try_parse(content: &str, dummy_import: bool) -> Result<Context, ParseError> {
 fn dump_whole_tree(is_spec: bool, dummy_import: bool) -> Result<String> {
     // Code for speed testing
     let spec_dir = std::env::var("SPEC_DIR")?;
+    let print_errors = if let Ok(_) = std::env::var("PRINT_ERROR") {
+        true
+    } else {
+        false
+    };
     let mut dump: HashMap<String, Context> = HashMap::new();
     let mut defines = Vec::new();
     let mut errors = 0usize;
@@ -56,11 +61,19 @@ fn dump_whole_tree(is_spec: bool, dummy_import: bool) -> Result<String> {
         let mut content = String::new();
         f.read_to_string(&mut content).unwrap();
         total += 1;
-        if let Ok(context) = try_parse(&content, dummy_import && !is_spec) {
+        let parse_result = try_parse(&content, dummy_import && !is_spec);
+        if let Ok(context) = parse_result {
             let name = p.strip_prefix(&spec_dir)?;
             dump.insert(name.to_string_lossy().to_string(), context);
         } else {
-            println!("{:?}", p);
+            if print_errors {
+                println!(
+                    "{}",
+                    parse_result
+                        .unwrap_err()
+                        .pretty_print(&content, &p.to_string_lossy())
+                );
+            }
             errors += 1;
         }
     }
