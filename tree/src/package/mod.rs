@@ -1,10 +1,10 @@
 mod error;
-use error::PackageError;
+pub use error::PackageError;
 
 use std::collections::HashMap;
 
 pub struct Package {
-    name: String,
+    pub name: String,
     section: String,
     version: String,
     release: Option<usize>, // Revision, but in apt's dictionary
