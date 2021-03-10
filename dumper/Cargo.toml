@@ -1,0 +1,12 @@
+[package]
+name = "abbs-meta-dump"
+version = "0.1.0"
+authors = ["liushuyu <liushuyu011@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+anyhow = "1"
+walkdir = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+abbs-meta-apml = { path = "../apml" }

@@ -127,7 +127,7 @@ pub fn get_trim_prefix(
         trim_pattern = format!("^(?:{})?(.*)$", regex_pattern);
     } else {
         trim_pattern = format!(
-            "^(.*{})(?:{})?$",
+            "^(.*{})(?:{})$",
             if greedy { "?" } else { "" },
             regex_pattern
         );
@@ -137,6 +137,8 @@ pub fn get_trim_prefix(
         if let Some(capture) = result.get(1) {
             return Ok(capture.as_str().to_string());
         }
+    } else if !mode {
+        return Ok(origin.to_string());
     }
 
     Err(ParseErrorInfo::GlobError(
