@@ -89,7 +89,7 @@ fn get_args_top_level(
             Ok(())
         }
         ast::Command::Job(_l) => Err(ParseErrorInfo::InvalidSyntax(
-            "Syntax error: job not allowed.".to_string(),
+            "Job control is not allowed.".to_string(),
         )),
     }
 }
@@ -112,11 +112,13 @@ fn get_args_pipeable(
 ) -> Result<(), ParseErrorInfo> {
     match cmd {
         ast::PipeableCommand::Simple(cmd) => get_args_simple(cmd, context),
-        ast::PipeableCommand::Compound(_cmd) => Err(ParseErrorInfo::InvalidSyntax(
+        ast::PipeableCommand::Compound(_cmd) => Err(ParseErrorInfo::RestrictedSyntax(
             "Redirection, `if` or `for` are not allowed.".to_string(),
+            "if ".to_string(),
         )),
-        ast::PipeableCommand::FunctionDef(_, _cmd) => Err(ParseErrorInfo::InvalidSyntax(
+        ast::PipeableCommand::FunctionDef(name, _cmd) => Err(ParseErrorInfo::RestrictedSyntax(
             "Function definition not allowed.".to_string(),
+            name.to_string(),
         )),
     }
 }
@@ -127,7 +129,7 @@ fn get_args_simple(
 ) -> Result<(), ParseErrorInfo> {
     if !cmd.redirects_or_cmd_words.is_empty() {
         return Err(ParseErrorInfo::InvalidSyntax(
-            "Commands not allowed.".to_string(),
+            "Commands not allowed.".to_string()
         ));
     }
 
@@ -151,10 +153,10 @@ fn get_args_simple(
                 let word = match word {
                     Some(w) => w,
                     None => {
-                        return Err(ParseErrorInfo::InvalidSyntax(format!(
-                            "Variable {} assigned without value.",
-                            name
-                        )));
+                        return Err(ParseErrorInfo::RestrictedSyntax(
+                            format!("Variable {} assigned without value.", name),
+                            name.to_string(),
+                        ));
                     }
                 };
 
@@ -162,8 +164,9 @@ fn get_args_simple(
                 context.insert(name.to_string(), value);
             }
             ast::RedirectOrEnvVar::Redirect(_) => {
-                return Err(ParseErrorInfo::InvalidSyntax(
+                return Err(ParseErrorInfo::RestrictedSyntax(
                     "Redirection, `if` or `for` are not allowed.".to_string(),
+                    "if ".to_string()
                 ));
             }
         };
@@ -342,8 +345,9 @@ fn get_subst_result(
 
             Ok(format!("{}", origin.len()))
         }
-        ast::ParameterSubstitution::Command(_) => Err(ParseErrorInfo::InvalidSyntax(
+        ast::ParameterSubstitution::Command(_) => Err(ParseErrorInfo::SubstitutionError(
             "Command substitution is not allowed.".to_string(),
+            String::new(),
         )),
         ast::ParameterSubstitution::Default(colon, param, command) => {
             let origin = get_subst_origin(param, context);
