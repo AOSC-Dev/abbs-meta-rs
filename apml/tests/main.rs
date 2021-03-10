@@ -36,7 +36,12 @@ fn parse_whole_tree() -> Result<()> {
             errors += 1;
         }
     }
-    println!("Total: {}, Errors: {} ({}%)", total, errors, errors * 100 / total);
+    println!(
+        "Total: {}, Errors: {} ({}%)",
+        total,
+        errors,
+        errors * 100 / total
+    );
 
     Ok(())
 }

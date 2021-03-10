@@ -2,7 +2,12 @@ use abbs_meta_apml;
 use abbs_meta_apml::{parse, ParseError};
 use anyhow::Result;
 use serde::Serialize;
-use std::{collections::HashMap, fs::File, io::{Read, Write}, path::PathBuf};
+use std::{
+    collections::HashMap,
+    fs::File,
+    io::{Read, Write},
+    path::PathBuf,
+};
 
 type Context = HashMap<String, String>;
 

@@ -1,6 +1,7 @@
 import json
 import sys
 
+
 def compare_dumps(spec: bool) -> bool:
     print(f'Finding differences in `{"spec" if spec else "defines"}` ...')
     diffs = 0
@@ -13,10 +14,12 @@ def compare_dumps(spec: bool) -> bool:
         if not ref:
             print(f'{k}: Missing from reference')
         if v != ref:
-            print(f'{k}: Different from reference:\nRef: {ref}\n===\nNew: {v}\n------------------------')
+            print(
+                f'{k}: Different from reference:\nRef: {ref}\n===\nNew: {v}\n------------------------')
             diffs += 1
     print(f'Found {diffs} differences between implementations')
     return diffs > 0
+
 
 if __name__ == "__main__":
     if compare_dumps(True):
