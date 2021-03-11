@@ -8,3 +8,7 @@ edition = "2018"
 abbs-meta-apml = { path = "../apml" }
 anyhow = "1"
 walkdir = "*"
+serde = { version = "1.0", features = ["derive"] }
+
+[dev-dependencies]
+toml = "0.5"

@@ -2,11 +2,12 @@ pub mod error;
 use error::TreeError;
 
 use super::package::Package;
-use abbs_meta_apml::{parse, ParseError, ParseErrorInfo};
+use abbs_meta_apml::parse;
 
+use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fs, path::Path};
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Tree {
     packages: HashMap<String, Package>,
 }
@@ -48,7 +49,11 @@ impl Tree {
             match parse(&spec, &mut context) {
                 Ok(_) => (),
                 Err(e) => {
-                    println!("Failed to parse {}: {}, skipping.", defines_path.display(), e);
+                    eprintln!(
+                        "Failed to parse {}: {}, skipping.",
+                        defines_path.display(),
+                        e
+                    );
                     continue;
                 }
             }
@@ -58,7 +63,11 @@ impl Tree {
             match parse(&defines, &mut context) {
                 Ok(_) => (),
                 Err(e) => {
-                    println!("Failed to parse {}: {}, skipping.", defines_path.display(), e);
+                    eprintln!(
+                        "Failed to parse {}: {}, skipping.",
+                        defines_path.display(),
+                        e
+                    );
                     continue;
                 }
             };
