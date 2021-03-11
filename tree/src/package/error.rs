@@ -1,18 +1,30 @@
 use std::fmt;
 
 #[derive(Debug)]
-pub enum PackageError {
-    MissingField(String),
-    FieldTypeError(String, String),
+pub struct PackageError {
+    pub pkgname: String,
+    pub error: PackageErrorType,
 }
 
 impl fmt::Display for PackageError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Failed to process {}: {}", self.pkgname, self.error)
+    }
+}
+
+#[derive(Debug)]
+pub enum PackageErrorType {
+    MissingField(String),
+    FieldTypeError(String, String),
+}
+
+impl fmt::Display for PackageErrorType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            PackageError::MissingField(field_name) => {
+            PackageErrorType::MissingField(field_name) => {
                 write!(f, "Field {} missing.", &field_name)
             }
-            PackageError::FieldTypeError(field_name, supposed_type) => {
+            PackageErrorType::FieldTypeError(field_name, supposed_type) => {
                 write!(
                     f,
                     "Field {} cannot be parsed as {}.",
