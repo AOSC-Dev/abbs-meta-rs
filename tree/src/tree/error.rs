@@ -1,12 +1,12 @@
+use crate::package::PackageError;
 use abbs_meta_apml::ParseError;
 use std::fmt;
-use crate::package::PackageError;
 
 #[derive(Debug)]
 pub enum TreeError {
     FsError(String),
     ParseError(ParseError),
-    PackageError(PackageError)
+    PackageError(PackageError),
 }
 
 impl From<walkdir::Error> for TreeError {
@@ -36,7 +36,7 @@ impl From<PackageError> for TreeError {
 impl fmt::Display for TreeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            _ => write!(f, "")
+            _ => write!(f, ""),
         }
     }
 }

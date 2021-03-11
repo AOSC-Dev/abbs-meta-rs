@@ -1,2 +1,2 @@
-mod package;
-mod tree;
+pub mod package;
+pub mod tree;
