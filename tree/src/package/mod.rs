@@ -1,9 +1,10 @@
 mod error;
 pub use error::{PackageError, PackageErrorType};
 
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Package {
     pub name: String,
     //section: String,
@@ -14,6 +15,7 @@ pub struct Package {
 }
 
 const NAME_FILED: &str = "PKGNAME";
+// TODO: Add PKGSEC
 const MANDATORY_FIELDS: [&str; 2] = ["PKGVER", "PKGDES"];
 
 impl Package {
@@ -71,5 +73,8 @@ impl Package {
 }
 
 fn get_items_from_bash_string(s: &str) -> Vec<String> {
-    s.split(' ').map(|s| s.to_string()).filter(|s| s.len() != 0).collect::<Vec<String>>()
+    s.split(' ')
+        .map(|s| s.to_string())
+        .filter(|s| s.len() != 0)
+        .collect::<Vec<String>>()
 }
