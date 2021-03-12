@@ -2,6 +2,7 @@
 members = [
     "apml",
     "dumper",
+    "libsolv-sys"
 ]
 
 
