@@ -12,6 +12,8 @@ jobs:
       - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install -y bash-builtins cmake ninja-build libev-dev
       - uses: actions/checkout@v2
+        with:
+          submodules: true
       - name: 'Cross verify with current aosc-os-abbs'
         run: ./dumper/tools/verify/autoverify.sh || true
         env:
