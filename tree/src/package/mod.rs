@@ -11,10 +11,8 @@ pub struct Package {
     epoch: usize,
     version: String,
     release: usize, // Revision, but in apt's dictionary
-    dependencies: Vec<String>,
-    arch_dependencies: HashMap<String, Vec<String>>,
-    build_dependencies: Vec<String>,
-    arch_build_dependencies: HashMap<String, Vec<String>>,
+    dependencies: HashMap<String, Vec<String>>,
+    build_dependencies: HashMap<String, Vec<String>>,
 }
 
 const NAME_FILED: &str = "PKGNAME";
@@ -60,7 +58,7 @@ impl Package {
                             ),
                         });
                     }
-                }
+                },
                 None => 0,
             },
             release: match context.get("PKGREL") {
@@ -78,26 +76,30 @@ impl Package {
                 },
                 None => 0,
             },
-            dependencies: get_items_from_bash_string(
-                context.get("PKGDEP").unwrap_or(&String::new()),
-            ),
-            arch_dependencies: {
-                let mut arch_deps = HashMap::new();
+            dependencies: {
+                let mut dep = HashMap::new();
+                dep.insert(
+                    "default".to_string(),
+                    get_items_from_bash_string(context.get("PKGDEP").unwrap_or(&String::new())),
+                );
                 for (arch, deps) in get_fields_with_prefix(context, "PKGDEP__") {
-                    arch_deps.insert(arch.to_lowercase(), get_items_from_bash_string(&deps));
+                    dep.insert(arch.to_lowercase(), get_items_from_bash_string(&deps));
                 }
-                arch_deps
+
+                dep
             },
-            build_dependencies: get_items_from_bash_string(
-                context.get("BUILDDEP").unwrap_or(&String::new()),
-            ),
-            arch_build_dependencies: {
-                let mut arch_deps = HashMap::new();
+            build_dependencies: {
+                let mut dep = HashMap::new();
+                dep.insert(
+                    "default".to_string(),
+                    get_items_from_bash_string(context.get("BUILDDEP").unwrap_or(&String::new())),
+                );
                 for (arch, deps) in get_fields_with_prefix(context, "BUILDDEP__") {
-                    arch_deps.insert(arch.to_lowercase(), get_items_from_bash_string(&deps));
+                    dep.insert(arch.to_lowercase(), get_items_from_bash_string(&deps));
                 }
-                arch_deps
-            }
+
+                dep
+            },
         };
 
         Ok(res)
@@ -118,7 +120,10 @@ fn get_fields_with_prefix(h: &HashMap<String, String>, prefix: &str) -> Vec<(Str
     let mut res = Vec::new();
     for (name, value) in h {
         if name.starts_with(prefix) {
-            res.push((name.strip_prefix(prefix).unwrap().to_string(), value.to_string()))
+            res.push((
+                name.strip_prefix(prefix).unwrap().to_string(),
+                value.to_string(),
+            ));
         }
     }
 
