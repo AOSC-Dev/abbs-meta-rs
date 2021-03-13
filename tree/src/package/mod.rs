@@ -13,7 +13,7 @@ pub struct Package {
     epoch: usize,
     version: String,
     release: usize, // Revision, but in apt's dictionary
-    fail_arch: FailArch,
+    fail_arch: Option<FailArch>,
     dependencies: HashMap<String, Vec<String>>,
     build_dependencies: HashMap<String, Vec<String>>,
 }
@@ -82,7 +82,7 @@ impl Package {
             fail_arch: {
                 if let Some(s) = context.get("FAIL_ARCH") {
                     match FailArch::from(s) {
-                        Ok(res) => res,
+                        Ok(res) => Some(res),
                         Err(_) => {
                             return Err(PackageError {
                                 pkgname: name,
@@ -91,7 +91,7 @@ impl Package {
                         }
                     }
                 } else {
-                    FailArch::Empty
+                    None
                 }
             },
             dependencies: {

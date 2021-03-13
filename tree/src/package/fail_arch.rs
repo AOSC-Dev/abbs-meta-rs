@@ -4,7 +4,6 @@ use serde::{Deserialize, Serialize};
 pub enum FailArch {
     Include(Vec<String>),
     Exclude(Vec<String>),
-    Empty,
 }
 
 impl FailArch {
