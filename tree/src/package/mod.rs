@@ -1,5 +1,7 @@
 mod error;
+mod fail_arch;
 pub use error::{PackageError, PackageErrorType};
+pub use fail_arch::FailArch;
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -11,6 +13,7 @@ pub struct Package {
     epoch: usize,
     version: String,
     release: usize, // Revision, but in apt's dictionary
+    fail_arch: FailArch,
     dependencies: HashMap<String, Vec<String>>,
     build_dependencies: HashMap<String, Vec<String>>,
 }
@@ -76,6 +79,21 @@ impl Package {
                 },
                 None => 0,
             },
+            fail_arch: {
+                if let Some(s) = context.get("FAIL_ARCH") {
+                    match FailArch::from(s) {
+                        Ok(res) => res,
+                        Err(_) => {
+                            return Err(PackageError {
+                                pkgname: name,
+                                error: PackageErrorType::FieldSyntaxError("FAIL_ARCH".to_string()),
+                            })
+                        }
+                    }
+                } else {
+                    FailArch::Empty
+                }
+            },
             dependencies: {
                 let mut dep = HashMap::new();
                 dep.insert(
@@ -109,7 +127,7 @@ impl Package {
 fn get_items_from_bash_string(s: &str) -> Vec<String> {
     s.split(' ')
         .map(|s| s.to_string())
-        .filter(|s| s.len() != 0)
+        .filter(|s| !s.is_empty())
         .collect::<Vec<String>>()
 }
 
