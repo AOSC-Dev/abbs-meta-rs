@@ -7,8 +7,8 @@ fn main() -> Result<()> {
     let path = PathBuf::from(tree_dir);
     let tree = Tree::from(&path).unwrap();
 
-    let toml = toml::to_string(&tree)?;
+    let json = serde_json::to_string(&tree)?;
 
-    print!("{}", toml);
+    print!("{}", json);
     Ok(())
 }
