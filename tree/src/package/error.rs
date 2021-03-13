@@ -16,6 +16,7 @@ impl fmt::Display for PackageError {
 pub enum PackageErrorType {
     MissingField(String),
     FieldTypeError(String, String),
+    FieldSyntaxError(String),
 }
 
 impl fmt::Display for PackageErrorType {
@@ -30,6 +31,9 @@ impl fmt::Display for PackageErrorType {
                     "Field {} cannot be parsed as {}.",
                     field_name, supposed_type
                 )
+            }
+            PackageErrorType::FieldSyntaxError(field_name) => {
+                write!(f, "Malformed syntax for field {}.", field_name)
             }
         }
     }
