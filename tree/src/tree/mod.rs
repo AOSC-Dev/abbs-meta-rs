@@ -50,27 +50,31 @@ impl Tree {
 
             // First parse spec
             if let Err(e) = parse(&spec, &mut context) {
-                    eprintln!(
-                        "Failed to parse {}: {}, skipping.",
-                        spec_path.display(),
-                        e
-                    );
-                    continue;
+                eprintln!("Failed to parse {}: {}, skipping.", spec_path.display(), e);
+                continue;
             }
             // Modify context so that defines can understand
             spec_decorator(&mut context);
             // Then parse defines
             if let Err(e) = parse(&defines, &mut context) {
-                    eprintln!(
-                        "Failed to parse {}: {}, skipping.",
-                        defines_path.display(),
-                        e
-                    );
-                    continue;
+                eprintln!(
+                    "Failed to parse {}: {}, skipping.",
+                    defines_path.display(),
+                    e
+                );
+                continue;
             }
             // Parse the result into a Package
             let pkg = Package::from(&context)?;
-            res.packages.insert(pkg.name.clone(), pkg);
+            if res.packages.contains_key(&pkg.name) {
+                eprintln!(
+                    "Duplicate package name {} found at {}, ignoring.",
+                    &pkg.name,
+                    defines_path.display()
+                );
+            } else {
+                res.packages.insert(pkg.name.clone(), pkg);
+            }
         }
 
         Ok(res)
