@@ -129,7 +129,7 @@ fn get_args_simple(
 ) -> Result<(), ParseErrorInfo> {
     if !cmd.redirects_or_cmd_words.is_empty() {
         return Err(ParseErrorInfo::InvalidSyntax(
-            "Commands not allowed.".to_string()
+            "Commands not allowed.".to_string(),
         ));
     }
 
@@ -166,7 +166,7 @@ fn get_args_simple(
             ast::RedirectOrEnvVar::Redirect(_) => {
                 return Err(ParseErrorInfo::RestrictedSyntax(
                     "Redirection, `if` or `for` are not allowed.".to_string(),
-                    "if ".to_string()
+                    "if ".to_string(),
                 ));
             }
         };
