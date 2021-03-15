@@ -19,16 +19,18 @@ impl Tree {
         for entry in walker.into_iter() {
             let file = entry?;
             if file.file_name() == "defines" {
-                let parent_root_err = TreeError::FsError(format!(
-                    "The parent directory of tree file {} is root.",
-                    file.path().display()
-                ));
                 let pkg_dir = file
                     .path()
                     .parent()
-                    .ok_or(parent_root_err.clone())?
+                    .ok_or_else(|| TreeError::FsError(format!(
+                    "The directory of defines file {} is root.",
+                    file.path().display()
+                )))?
                     .parent()
-                    .ok_or(parent_root_err.clone())?;
+                    .ok_or_else(|| TreeError::FsError(format!(
+                    "The parent directory of defines file {} is root.",
+                    file.path().display()
+                )))?;
                 let spec_path = pkg_dir.join("spec");
                 if !spec_path.is_file() {
                     return Err(TreeError::FsError(format!(
