@@ -22,7 +22,10 @@ impl Tree {
                 let pkg_dir = match file.path().parent() {
                     Some(dir) => dir.parent().unwrap(),
                     None => {
-                        return Err(TreeError::FsError("Package directory is root.".to_string()))
+                        return Err(TreeError::FsError(format!(
+                            "The parent directory of defines file {} is root.",
+                            file.path().display()
+                        )));
                     }
                 };
                 let spec_path = pkg_dir.join("spec");
