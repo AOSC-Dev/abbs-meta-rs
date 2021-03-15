@@ -1,6 +1,6 @@
 use std::fmt;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PackageError {
     pub pkgname: String,
     pub error: PackageErrorType,
@@ -12,7 +12,7 @@ impl fmt::Display for PackageError {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum PackageErrorType {
     MissingField(String),
     FieldTypeError(String, String),

@@ -5,7 +5,7 @@ use annotate_snippets::{
 };
 use std::fmt;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ParseError {
     pub line: usize,
     pub col: usize,
@@ -14,7 +14,7 @@ pub struct ParseError {
     pub error: ParseErrorInfo,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ParseErrorInfo {
     LexerError(String),
     InvalidSyntax(String),
@@ -140,7 +140,7 @@ impl fmt::Display for ParseError {
             ParseErrorInfo::GlobError(r) => ("Glob translation error", r),
             ParseErrorInfo::RegexError(r) => ("Regex error", r),
             ParseErrorInfo::LexerError(r) => ("Invalid or unsupported syntax", r),
-            ParseErrorInfo::RestrictedSyntax(r, _) => ("Restricted syntax", r)
+            ParseErrorInfo::RestrictedSyntax(r, _) => ("Restricted syntax", r),
         };
 
         write!(
