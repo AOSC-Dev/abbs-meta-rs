@@ -2,7 +2,7 @@ use crate::package::PackageError;
 use abbs_meta_apml::ParseError;
 use std::fmt;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum TreeError {
     FsError(String),
     ParseError(ParseError),
