@@ -49,32 +49,25 @@ impl Tree {
             let mut context = HashMap::new();
 
             // First parse spec
-            match parse(&spec, &mut context) {
-                Ok(_) => (),
-                Err(e) => {
+            if let Err(e) = parse(&spec, &mut context) {
                     eprintln!(
                         "Failed to parse {}: {}, skipping.",
-                        defines_path.display(),
+                        spec_path.display(),
                         e
                     );
                     continue;
-                }
             }
             // Modify context so that defines can understand
             spec_decorator(&mut context);
             // Then parse defines
-            match parse(&defines, &mut context) {
-                Ok(_) => (),
-                Err(e) => {
+            if let Err(e) = parse(&defines, &mut context) {
                     eprintln!(
                         "Failed to parse {}: {}, skipping.",
                         defines_path.display(),
                         e
                     );
                     continue;
-                }
-            };
-
+            }
             // Parse the result into a Package
             let pkg = Package::from(&context)?;
             res.packages.insert(pkg.name.clone(), pkg);
