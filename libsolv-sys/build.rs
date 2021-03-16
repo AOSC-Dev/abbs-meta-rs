@@ -1,5 +1,26 @@
 use anyhow::{anyhow, Result};
-use std::path::{self, Path, PathBuf};
+use std::{
+    fs,
+    path::{self, Path, PathBuf},
+};
+
+const ALLOWED_FUNC_PREFIX: &[&str] = &[
+    "map",
+    "policy",
+    "pool",
+    "prune",
+    "queue",
+    "repo",
+    "repodata",
+    "selection",
+    "solv",
+    "solver",
+    "testcase",
+    "transaction",
+    "dataiterator",
+    "datamatcher",
+    "stringpool",
+];
 
 fn find_system_libsolv() -> Result<PathBuf> {
     let mut conf = pkg_config::Config::new();
@@ -38,10 +59,29 @@ fn build_libsolv() -> Result<PathBuf> {
     Ok(out.join("include/solv"))
 }
 
+fn check_solvext_bindings(
+    include_path: &Path,
+    builder: bindgen::Builder,
+) -> Result<bindgen::Builder> {
+    let mut builder = builder;
+    for inc in fs::read_dir(include_path)? {
+        let inc = inc?;
+        let name = inc.file_name();
+        let name = name.to_string_lossy();
+        if name.starts_with("repo_") && name.ends_with(".h") {
+            builder = builder.header(inc.path().to_str().unwrap());
+        }
+    }
+
+    Ok(builder)
+}
+
 fn generate_bindings(include_path: &Path) -> Result<()> {
     let output = std::env::var("OUT_DIR")?;
-    bindgen::Builder::default()
+    let generator = bindgen::Builder::default()
         .header(include_path.join("solver.h").to_str().unwrap())
+        .whitelist_function(format!("({}).*", ALLOWED_FUNC_PREFIX.join("|")));
+    check_solvext_bindings(include_path, generator)?
         .generate()
         .unwrap()
         .write_to_file(Path::new(&output).join("bindings.rs"))?;
