@@ -46,6 +46,7 @@ fn build_libsolv() -> Result<PathBuf> {
     }
     let out = cmake::Config::new(p.parent().unwrap())
         .define("ENABLE_DEBIAN", "ON")
+        .define("DEBIAN", "ON")
         .define("ENABLE_STATIC", "ON")
         .define("DISABLE_SHARED", "ON")
         .build();
@@ -68,6 +69,7 @@ fn check_solvext_bindings(
         let inc = inc?;
         let name = inc.file_name();
         let name = name.to_string_lossy();
+        // all the solvext include files are named like `repo_<format_name>.h`
         if name.starts_with("repo_") && name.ends_with(".h") {
             builder = builder.header(inc.path().to_str().unwrap());
         }
@@ -80,6 +82,8 @@ fn generate_bindings(include_path: &Path) -> Result<()> {
     let output = std::env::var("OUT_DIR")?;
     let generator = bindgen::Builder::default()
         .header(include_path.join("solver.h").to_str().unwrap())
+        .header(include_path.join("solverdebug.h").to_str().unwrap())
+        .header(include_path.join("selection.h").to_str().unwrap())
         .whitelist_function(format!("({}).*", ALLOWED_FUNC_PREFIX.join("|")));
     check_solvext_bindings(include_path, generator)?
         .generate()
