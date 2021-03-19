@@ -1,7 +1,5 @@
 use defaultmap::DefaultHashMap;
-use std::{cmp::min, collections::HashMap};
-
-use abbs_meta_tree::package::Package;
+use std::cmp::min;
 
 type DepGetter = dyn Fn(&str) -> Vec<String>;
 
