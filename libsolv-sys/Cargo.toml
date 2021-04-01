@@ -1,6 +1,8 @@
 [package]
 name = "libsolv-sys"
 version = "0.1.0"
+license = "MIT"
+repository = "https://github.com/AOSC-Dev/abbs-meta-rs/tree/master/libsolv-sys"
 description = "Raw bindings to libsolv"
 authors = ["liushuyu <liushuyu011@gmail.com>"]
 edition = "2018"
