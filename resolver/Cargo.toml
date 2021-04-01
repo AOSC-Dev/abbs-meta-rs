@@ -1,0 +1,12 @@
+[package]
+name = "resolver"
+version = "0.1.0"
+authors = ["liushuyu <liushuyu011@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+libsolv-sys = { path = "../libsolv-sys" }
+abbs-meta-tree = { path = "../tree" }
+anyhow = "1"
+libc = "0.2"
+defaultmap = "0.5"
