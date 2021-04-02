@@ -84,6 +84,9 @@ fn generate_bindings(include_path: &Path) -> Result<()> {
         .header(include_path.join("solver.h").to_str().unwrap())
         .header(include_path.join("solverdebug.h").to_str().unwrap())
         .header(include_path.join("selection.h").to_str().unwrap())
+        .header(include_path.join("knownid.h").to_str().unwrap())
+        .whitelist_type("(Id|solv_knownid)")
+        .whitelist_var(".*")
         .whitelist_function(format!("({}).*", ALLOWED_FUNC_PREFIX.join("|")));
     check_solvext_bindings(include_path, generator)?
         .generate()
