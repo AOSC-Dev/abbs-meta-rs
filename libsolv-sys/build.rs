@@ -54,8 +54,13 @@ fn build_libsolv() -> Result<PathBuf> {
         "cargo:rustc-link-search=native={}",
         out.join("lib").display()
     );
+    println!(
+        "cargo:rustc-link-search=native={}",
+        out.join("lib64").display()
+    );
     println!("cargo:rustc-link-lib=static=solv");
     println!("cargo:rustc-link-lib=static=solvext");
+    println!("cargo:rustc-link-lib=z");
 
     Ok(out.join("include/solv"))
 }
