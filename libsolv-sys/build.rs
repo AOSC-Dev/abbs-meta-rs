@@ -49,6 +49,7 @@ fn build_libsolv() -> Result<PathBuf> {
         .define("DEBIAN", "ON")
         .define("ENABLE_STATIC", "ON")
         .define("DISABLE_SHARED", "ON")
+        .target(&std::env::var("CMAKE_TARGET").unwrap_or(std::env::var("TARGET").unwrap()))
         .build();
     println!(
         "cargo:rustc-link-search=native={}",

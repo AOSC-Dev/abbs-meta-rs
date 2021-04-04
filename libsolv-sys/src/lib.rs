@@ -1,6 +1,6 @@
 //! Low-level Rust binding for libsolv.
 //!
-//! The current binding is tailored to dpkg-based distro usage 
+//! The current binding is tailored to dpkg-based distro usage
 //! (Enabled libsolvext but only Debian support is added).
 //!
 //! All the bindings are inside the `ffi` module.
