@@ -10,3 +10,4 @@ abbs-meta-tree = { path = "../tree" }
 anyhow = "1"
 libc = "0.2"
 defaultmap = "0.5"
+hex = "0.4"
