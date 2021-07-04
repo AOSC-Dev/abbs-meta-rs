@@ -1,0 +1,19 @@
+[package]
+name = "solver"
+version = "0.1.0"
+authors = ["Leo Shen <i@szclsya.me>"]
+edition = "2018"
+
+[dependencies]
+anyhow = "1.0"
+regex = "1"
+lazy_static = "1"
+# Good stuff
+varisat = "0.2"
+petgraph = "0.5"
+rayon = "1"
+# cli
+console = "0.14.1"
+# Dealing with config files
+serde = "1"
+toml = "0.5"

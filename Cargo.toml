@@ -4,7 +4,8 @@ members = [
     "dumper",
     "libsolv-sys",
     "tree",
-    "resolver"
+    "resolver",
+    "solver"
 ]
 
 
