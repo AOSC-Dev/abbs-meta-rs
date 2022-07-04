@@ -53,15 +53,17 @@ impl Tree {
 
             // First parse spec
             if let Err(e) = parse(&spec, &mut context) {
-                eprintln!("Failed to parse {}: {}, skipping.", spec_path.display(), e);
+                let e: Vec<String> = e.iter().map(|e| e.to_string()).collect();
+                eprintln!("Failed to parse {}: {:?}, skipping.", spec_path.display(), e);
                 continue;
             }
             // Modify context so that defines can understand
             spec_decorator(&mut context);
             // Then parse defines
             if let Err(e) = parse(&defines, &mut context) {
+                let e: Vec<String> = e.iter().map(|e| e.to_string()).collect();
                 eprintln!(
-                    "Failed to parse {}: {}, skipping.",
+                    "Failed to parse {}: {:?}, skipping.",
                     defines_path.display(),
                     e
                 );

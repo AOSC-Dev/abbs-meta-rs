@@ -14,8 +14,15 @@ pub struct Package {
     version: String,
     release: usize, // Revision, but in apt's dictionary
     fail_arch: Option<FailArch>,
-    dependencies: HashMap<String, Vec<String>>,
-    build_dependencies: HashMap<String, Vec<String>>,
+
+    // HashMap<String, Vec<(String, Option<String>, Option<String>)>>  ->  HashMap<arch, Vec<(dependency, relop, version)>>
+    dependencies: HashMap<String, Vec<(String, Option<String>, Option<String>)>>,
+    build_dependencies: HashMap<String, Vec<(String, Option<String>, Option<String>)>>,
+    package_suggests: HashMap<String, Vec<(String, Option<String>, Option<String>)>>,
+    package_provides: HashMap<String, Vec<(String, Option<String>, Option<String>)>>,
+    package_recommands: HashMap<String, Vec<(String, Option<String>, Option<String>)>>,
+    package_replaces: HashMap<String, Vec<(String, Option<String>, Option<String>)>>,
+    package_breaks: HashMap<String, Vec<(String, Option<String>, Option<String>)>>,
 }
 
 const NAME_FILED: &str = "PKGNAME";
@@ -94,34 +101,51 @@ impl Package {
                     None
                 }
             },
-            dependencies: {
-                let mut dep = HashMap::new();
-                dep.insert(
-                    "default".to_string(),
-                    get_items_from_bash_string(context.get("PKGDEP").unwrap_or(&String::new())),
-                );
-                for (arch, deps) in get_fields_with_prefix(context, "PKGDEP__") {
-                    dep.insert(arch.to_lowercase(), get_items_from_bash_string(&deps));
-                }
-
-                dep
-            },
-            build_dependencies: {
-                let mut dep = HashMap::new();
-                dep.insert(
-                    "default".to_string(),
-                    get_items_from_bash_string(context.get("BUILDDEP").unwrap_or(&String::new())),
-                );
-                for (arch, deps) in get_fields_with_prefix(context, "BUILDDEP__") {
-                    dep.insert(arch.to_lowercase(), get_items_from_bash_string(&deps));
-                }
-
-                dep
-            },
+            dependencies: get_field_with_arch_restriction("PKGDEP", context),
+            build_dependencies: get_field_with_arch_restriction("BUILDDEP", context),
+            package_suggests: get_field_with_arch_restriction("PKGSUG", context),
+            package_provides: get_field_with_arch_restriction("PKGPROV", context),
+            package_recommands: get_field_with_arch_restriction("PKGRECOM", context),
+            package_replaces: get_field_with_arch_restriction("PKGREP", context),
+            package_breaks: get_field_with_arch_restriction("PKGBREAK", context),
         };
 
         Ok(res)
     }
+}
+
+fn get_field_with_arch_restriction(
+    s: &str,
+    context: &HashMap<String, String>,
+) -> HashMap<String, Vec<(String, Option<String>, Option<String>)>> {
+    let mut dep = HashMap::new();
+    dep.insert(
+        "default".to_string(),
+        get_items_from_bash_string(context.get(s).unwrap_or(&String::new())).iter().map(|s| split_by_relop(s)).collect(),
+    );
+    for (arch, deps) in get_fields_with_prefix(context, &format!("{s}__")) {
+        dep.insert(arch.to_lowercase(), get_items_from_bash_string(&deps).iter().map(|s| split_by_relop(s)).collect() );
+    }
+
+    dep
+}
+
+fn split_by_relop(s: &str) -> (String, Option<String>, Option<String>) {
+    let f = |relop:&str| {
+        let v: Vec<&str> = s.split(relop).map(|s| s).collect();
+        if v.len() == 1 {
+            None
+        } else {
+            Some((v[0].to_string(), Some(relop.to_string()), Some(v[1].to_string())))
+        }
+    };
+
+    f("<=")
+        .or_else(|| f(">="))
+        .or_else(|| f("=="))
+        .or_else(|| f("<"))
+        .or_else(|| f(">"))
+        .map_or_else(|| (s.to_string(), None, None), |v| v)
 }
 
 fn get_items_from_bash_string(s: &str) -> Vec<String> {
