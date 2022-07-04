@@ -21,9 +21,10 @@ macro_rules! var_name {
     }};
 }
 
-pub fn parse(c: &str, context: &mut Context) -> Result<(), ParseError> {
+pub fn parse(c: &str, context: &mut Context) -> Result<(), Vec<ParseError>> {
     let lex = Lexer::new(c.chars());
     let mut parser = DefaultParser::new(lex);
+    let mut errors = Vec::new();
 
     loop {
         let prev_pos = parser.pos();
@@ -31,13 +32,15 @@ pub fn parse(c: &str, context: &mut Context) -> Result<(), ParseError> {
             Ok(x) => x,
             Err(e) => {
                 let pos = parser.pos();
-                return Err(ParseError {
+                let err = ParseError {
                     line: pos.line,
                     col: pos.col,
                     byte: pos.byte,
                     prev_byte: prev_pos.byte,
                     error: ParseErrorInfo::LexerError(e.to_string()),
-                });
+                };
+                errors.push(err);
+                return Err(errors);
             }
         };
 
@@ -47,13 +50,14 @@ pub fn parse(c: &str, context: &mut Context) -> Result<(), ParseError> {
                     Ok(_) => (),
                     Err(e) => {
                         let pos = parser.pos();
-                        return Err(ParseError {
+                        let err = ParseError {
                             line: pos.line,
                             col: pos.col,
                             byte: pos.byte,
                             prev_byte: prev_pos.byte,
                             error: e,
-                        });
+                        };
+                        errors.push(err);
                     }
                 };
             }
@@ -63,7 +67,12 @@ pub fn parse(c: &str, context: &mut Context) -> Result<(), ParseError> {
         }
     }
 
-    Ok(())
+    if errors.len() == 0 {
+        Ok(())
+    }else{
+        Err(errors)
+    }
+
 }
 
 fn get_args_top_level(
