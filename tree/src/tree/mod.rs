@@ -70,7 +70,7 @@ impl Tree {
                 continue;
             }
             // Parse the result into a Package
-            let pkg = Package::from(&context)?;
+            let pkg = Package::from(&context,&spec_path)?;
             if res.packages.contains_key(&pkg.name) {
                 eprintln!(
                     "Duplicate package name {} found at {}, ignoring.",

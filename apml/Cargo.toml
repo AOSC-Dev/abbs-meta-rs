@@ -1,7 +1,7 @@
 ﻿[package]
 name = "abbs-meta-apml"
 version = "0.1.0"
-authors = ["Leo Shen <i@szclsya.me>", "liushuyu <liushuyu011@gmail.com>"]
+authors = ["Leo Shen <i@szclsya.me>", "liushuyu <liushuyu011@gmail.com>", "zrah <zrah@protonmail.com>"]
 edition = "2018"
 
 [dependencies]

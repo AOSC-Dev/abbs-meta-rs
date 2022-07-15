@@ -4,33 +4,39 @@ pub use error::{PackageError, PackageErrorType};
 pub use fail_arch::FailArch;
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::{collections::HashMap, path::PathBuf};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Package {
     pub name: String,
-    //section: String,
-    epoch: usize,
-    version: String,
-    release: usize, // Revision, but in apt's dictionary
-    fail_arch: Option<FailArch>,
+    pub epoch: usize,
+    pub version: String,
+    pub category: String,
+    pub section: String,
+    pub directory: String,
+    pub pkg_section: String,
+    pub release: usize, // Revision, but in apt's dictionary
+    pub fail_arch: Option<FailArch>,
+    pub description: String,
 
     // HashMap<String, Vec<(String, Option<String>, Option<String>)>>  ->  HashMap<arch, Vec<(dependency, relop, version)>>
-    dependencies: HashMap<String, Vec<(String, Option<String>, Option<String>)>>,
-    build_dependencies: HashMap<String, Vec<(String, Option<String>, Option<String>)>>,
-    package_suggests: HashMap<String, Vec<(String, Option<String>, Option<String>)>>,
-    package_provides: HashMap<String, Vec<(String, Option<String>, Option<String>)>>,
-    package_recommands: HashMap<String, Vec<(String, Option<String>, Option<String>)>>,
-    package_replaces: HashMap<String, Vec<(String, Option<String>, Option<String>)>>,
-    package_breaks: HashMap<String, Vec<(String, Option<String>, Option<String>)>>,
+    pub dependencies: HashMap<String, Vec<(String, Option<String>, Option<String>)>>, 
+    pub build_dependencies: HashMap<String, Vec<(String, Option<String>, Option<String>)>>,
+    pub package_suggests: HashMap<String, Vec<(String, Option<String>, Option<String>)>>,
+    pub package_provides: HashMap<String, Vec<(String, Option<String>, Option<String>)>>,
+    pub package_recommands: HashMap<String, Vec<(String, Option<String>, Option<String>)>>,
+    pub package_replaces: HashMap<String, Vec<(String, Option<String>, Option<String>)>>,
+    pub package_breaks: HashMap<String, Vec<(String, Option<String>, Option<String>)>>,
+    pub package_configs: HashMap<String, Vec<(String, Option<String>, Option<String>)>>,
 }
 
 const NAME_FILED: &str = "PKGNAME";
 // TODO: Add PKGSEC
 const MANDATORY_FIELDS: [&str; 2] = ["PKGVER", "PKGDES"];
+const ABBS_CATEGORIES:[&str;3] = ["core-", "base-", "extra-"];
 
 impl Package {
-    pub fn from(context: &HashMap<String, String>) -> Result<Self, error::PackageError> {
+    pub fn from(context: &HashMap<String, String>,spec_path: &PathBuf) -> Result<Self, error::PackageError> {
         let name = match context.get(NAME_FILED) {
             Some(name) => name.to_string(),
             None => {
@@ -48,6 +54,23 @@ impl Package {
                     pkgname: name,
                     error: PackageErrorType::MissingField(field_name),
                 });
+            }
+        }
+        
+        // extract /tmp/aosc-os-abbs/extra-admin/packagekit/spec -> category: extra  section: admin
+        let spec_path_str = spec_path.to_str().ok_or(PackageError {
+            pkgname: name.clone(),
+            error: PackageErrorType::FieldSyntaxError("CATEGORY".to_string()),
+        })?;
+        let mut category = String::new();
+        let mut section = String::new();
+        for abbs_category in ABBS_CATEGORIES {
+            if let Some(pos1) = spec_path_str.find(abbs_category) {
+                if let Some(pos2) = spec_path_str[pos1..].find("/") {
+                    let category_and_section = &spec_path_str[pos1..][..pos2];
+                    section = category_and_section[abbs_category.len()..].to_string();
+                    category = abbs_category[..abbs_category.len()-1].to_string();
+                }
             }
         }
 
@@ -108,6 +131,18 @@ impl Package {
             package_recommands: get_field_with_arch_restriction("PKGRECOM", context),
             package_replaces: get_field_with_arch_restriction("PKGREP", context),
             package_breaks: get_field_with_arch_restriction("PKGBREAK", context),
+            package_configs: get_field_with_arch_restriction("PKGCONFL", context),
+            pkg_section: context.get("PKGSEC").unwrap_or(&"".to_string()).to_string(),
+            category,
+            section,
+            directory: {
+                let err = PackageError { pkgname: name.clone(), error: PackageErrorType::FieldSyntaxError("DIRECTORY".to_string()) };
+                let mut spec_path = spec_path.clone();
+                spec_path.pop().then(||()).ok_or(err.clone())?;
+                let directory = spec_path.file_name().ok_or(err.clone())?.to_str().ok_or(err.clone())?;
+                directory.to_string()
+            },
+            description: context.get("PKGDES").expect("").to_string(),
         };
 
         Ok(res)
@@ -130,6 +165,7 @@ fn get_field_with_arch_restriction(
     dep
 }
 
+// autogen<=5.18.12-1 -> (autogen, Some(<=), Some(5.18.12-1))
 fn split_by_relop(s: &str) -> (String, Option<String>, Option<String>) {
     let f = |relop:&str| {
         let v: Vec<&str> = s.split(relop).map(|s| s).collect();
