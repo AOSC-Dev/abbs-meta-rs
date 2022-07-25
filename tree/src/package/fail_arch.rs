@@ -2,8 +2,8 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum FailArch {
-    Include(Vec<String>),
-    Exclude(Vec<String>),
+    pub Include(Vec<String>),
+    pub Exclude(Vec<String>),
 }
 
 impl FailArch {
