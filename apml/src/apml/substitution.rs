@@ -23,7 +23,7 @@ pub fn get_substring(origin: &str, command: &str) -> Result<String, ParseErrorIn
     let real_begin = if begin >= 0 {
         cmp::min(origin.len(), begin as usize)
     } else {
-        cmp::max(origin.len() - (begin.abs() as usize), 0)
+        cmp::max(origin.len() - begin.unsigned_abs(), 0)
     };
 
     match length {
@@ -33,7 +33,7 @@ pub fn get_substring(origin: &str, command: &str) -> Result<String, ParseErrorIn
                 Ok(origin[real_begin..real_end].to_string())
             } else {
                 let max_len = origin.len() - real_begin;
-                let real_length = cmp::max(0, max_len - length.abs() as usize);
+                let real_length = cmp::max(0, max_len - length.unsigned_abs());
                 let real_end = cmp::min(origin.len(), real_begin + real_length);
                 Ok(origin[real_begin..real_end].to_string())
             }
@@ -118,7 +118,7 @@ pub fn get_trim_prefix(
     mode: bool,
     greedy: bool,
 ) -> Result<String, ParseErrorInfo> {
-    let mut regex_pattern = get_regex_string_from_glob(&pattern)?;
+    let mut regex_pattern = get_regex_string_from_glob(pattern)?;
     let trim_pattern;
     if mode {
         if !greedy {
@@ -177,7 +177,7 @@ pub fn get_lower_case(
         }
     }
 
-    let pattern = get_regex_string_from_glob(&pattern.unwrap())?;
+    let pattern = get_regex_string_from_glob(pattern.unwrap())?;
     let matcher = Regex::new(&pattern)?;
     let mut output = String::new();
     for c in pattern.chars() {
@@ -203,7 +203,7 @@ pub fn get_upper_case(
         }
     }
 
-    let pattern = get_regex_string_from_glob(&pattern.unwrap())?;
+    let pattern = get_regex_string_from_glob(pattern.unwrap())?;
     let matcher = Regex::new(&pattern)?;
     let mut output = String::new();
     for c in pattern.chars() {
@@ -239,7 +239,7 @@ mod tests {
             assert_eq!(get_substring(origin, c.0).unwrap(), c.1);
         }
         for c in err_cases {
-            assert_eq!(get_substring(origin, c).is_ok(), false);
+            assert!(get_substring(origin, c).is_ok());
         }
     }
 }

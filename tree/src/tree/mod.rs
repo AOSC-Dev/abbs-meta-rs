@@ -22,15 +22,19 @@ impl Tree {
                 let pkg_dir = file
                     .path()
                     .parent()
-                    .ok_or_else(|| TreeError::FsError(format!(
-                    "The directory of defines file {} is root.",
-                    file.path().display()
-                )))?
+                    .ok_or_else(|| {
+                        TreeError::FsError(format!(
+                            "The directory of defines file {} is root.",
+                            file.path().display()
+                        ))
+                    })?
                     .parent()
-                    .ok_or_else(|| TreeError::FsError(format!(
-                    "The parent directory of defines file {} is root.",
-                    file.path().display()
-                )))?;
+                    .ok_or_else(|| {
+                        TreeError::FsError(format!(
+                            "The parent directory of defines file {} is root.",
+                            file.path().display()
+                        ))
+                    })?;
                 let spec_path = pkg_dir.join("spec");
                 if !spec_path.is_file() {
                     return Err(TreeError::FsError(format!(
@@ -54,7 +58,11 @@ impl Tree {
             // First parse spec
             if let Err(e) = parse(&spec, &mut context) {
                 let e: Vec<String> = e.iter().map(|e| e.to_string()).collect();
-                eprintln!("Failed to parse {}: {:?}, skipping.", spec_path.display(), e);
+                eprintln!(
+                    "Failed to parse {}: {:?}, skipping.",
+                    spec_path.display(),
+                    e
+                );
                 continue;
             }
             // Modify context so that defines can understand
@@ -70,7 +78,7 @@ impl Tree {
                 continue;
             }
             // Parse the result into a Package
-            let pkg = Package::from(&context,&spec_path)?;
+            let pkg = Package::from(&context, &spec_path)?;
             if res.packages.contains_key(&pkg.name) {
                 eprintln!(
                     "Duplicate package name {} found at {}, ignoring.",

@@ -1,4 +1,3 @@
-use abbs_meta_apml;
 use abbs_meta_apml::{parse, ParseError};
 use anyhow::Result;
 use std::{
@@ -9,10 +8,10 @@ use std::{
 };
 
 type Context = HashMap<String, String>;
-const DUMMY_AB_IMPORT: &[&'static str] = &["SRCDIR", "PKGDIR", "PKGVER", "PKGREL", "ARCH"];
+const DUMMY_AB_IMPORT: &[&str] = &["SRCDIR", "PKGDIR", "PKGVER", "PKGREL", "ARCH"];
 
 #[inline]
-fn try_parse(content: &str, dummy_import: bool) -> Result<Context, ParseError> {
+fn try_parse(content: &str, dummy_import: bool) -> Result<Context, Vec<ParseError>> {
     let mut context = HashMap::new();
     if dummy_import {
         for pred in DUMMY_AB_IMPORT {
@@ -32,11 +31,7 @@ fn try_parse(content: &str, dummy_import: bool) -> Result<Context, ParseError> {
 fn dump_whole_tree(is_spec: bool, dummy_import: bool) -> Result<String> {
     // Code for speed testing
     let spec_dir = std::env::var("SPEC_DIR")?;
-    let print_errors = if let Ok(_) = std::env::var("PRINT_ERROR") {
-        true
-    } else {
-        false
-    };
+    let print_errors = std::env::var("PRINT_ERROR").is_ok();
     let mut dump: HashMap<String, Context> = HashMap::new();
     let mut defines = Vec::new();
     let mut errors = 0usize;
@@ -68,10 +63,11 @@ fn dump_whole_tree(is_spec: bool, dummy_import: bool) -> Result<String> {
         } else {
             if print_errors {
                 println!(
-                    "{}",
+                    "{:?}",
                     parse_result
                         .unwrap_err()
-                        .pretty_print(&content, &p.to_string_lossy())
+                        .iter()
+                        .map(|e| e.pretty_print(&content, &p.to_string_lossy()))
                 );
             }
             errors += 1;

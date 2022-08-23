@@ -49,7 +49,7 @@ fn build_libsolv() -> Result<PathBuf> {
         .define("DEBIAN", "ON")
         .define("ENABLE_STATIC", "ON")
         .define("DISABLE_SHARED", "ON")
-        .target(&std::env::var("CMAKE_TARGET").unwrap_or(std::env::var("TARGET").unwrap()))
+        .target(&std::env::var("CMAKE_TARGET").unwrap_or_else(|_| std::env::var("TARGET").unwrap()))
         .build();
     println!(
         "cargo:rustc-link-search=native={}",
@@ -91,9 +91,9 @@ fn generate_bindings(include_path: &Path) -> Result<()> {
         .header(include_path.join("solverdebug.h").to_str().unwrap())
         .header(include_path.join("selection.h").to_str().unwrap())
         .header(include_path.join("knownid.h").to_str().unwrap())
-        .whitelist_type("(Id|solv_knownid)")
-        .whitelist_var(".*")
-        .whitelist_function(format!("({}).*", ALLOWED_FUNC_PREFIX.join("|")));
+        .allowlist_type("(Id|solv_knownid)")
+        .allowlist_var(".*")
+        .allowlist_function(format!("({}).*", ALLOWED_FUNC_PREFIX.join("|")));
     check_solvext_bindings(include_path, generator)?
         .generate()
         .unwrap()

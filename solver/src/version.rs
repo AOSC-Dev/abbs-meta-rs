@@ -180,6 +180,12 @@ pub struct VersionRequirement {
     pub upper_bond: Option<(PackageVersion, bool)>,
 }
 
+impl Default for VersionRequirement {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl VersionRequirement {
     pub fn new() -> Self {
         VersionRequirement {

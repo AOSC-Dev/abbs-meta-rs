@@ -35,8 +35,6 @@ impl From<PackageError> for TreeError {
 
 impl fmt::Display for TreeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            _ => write!(f, ""),
-        }
+        write!(f, "")
     }
 }

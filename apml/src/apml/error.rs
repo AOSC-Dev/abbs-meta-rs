@@ -34,16 +34,15 @@ fn locate_keyword(
     bare: bool,
 ) -> Option<(usize, usize)> {
     let mut search = AhoCorasickBuilder::new();
-    let searcher;
-    if !bare {
-        searcher = search.match_kind(MatchKind::LeftmostLongest).build(&[
+    let searcher = if !bare {
+        search.match_kind(MatchKind::LeftmostLongest).build(&[
             format!("${{{}", keyword).as_str(),
             format!("${}", keyword).as_str(),
             "$(",
         ])
     } else {
-        searcher = search.build(&[keyword]);
-    }
+        search.build(&[keyword])
+    };
 
     if start > end {
         return None;
@@ -82,12 +81,9 @@ impl ParseError {
             }
         }
 
-        match &self.error {
-            ParseErrorInfo::LexerError(_) => {
-                start_marker = self.byte - 1;
-                end_marker = self.byte;
-            }
-            _ => (),
+        if let ParseErrorInfo::LexerError(_) = &self.error {
+            start_marker = self.byte - 1;
+            end_marker = self.byte;
         }
         let marker = SourceAnnotation {
             label: reason,
@@ -103,7 +99,7 @@ impl ParseError {
             title: Some(title),
             footer: vec![],
             slices: vec![Slice {
-                source: source,
+                source,
                 line_start: 1,
                 origin: Some(filename),
                 fold: true,

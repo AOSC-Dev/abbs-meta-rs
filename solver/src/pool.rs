@@ -27,12 +27,10 @@ impl PackagePool {
         self.pkgs.push(meta);
         let index = self.pkgs.len();
 
-        if self.name_to_ids.contains_key(&name) {
-            let ids = self.name_to_ids.get_mut(&name).unwrap();
-            ids.push((index, version));
-        } else {
-            self.name_to_ids.insert(name, Vec::from([(index, version)]));
-        }
+        self.name_to_ids
+            .entry(name)
+            .and_modify(|ids| ids.push((index, version.clone())))
+            .or_insert_with(|| vec![(index, version)]);
 
         index
     }

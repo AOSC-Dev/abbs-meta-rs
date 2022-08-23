@@ -6,7 +6,10 @@ pub use fail_arch::FailArch;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, path::PathBuf};
 
-#[derive(Debug, Serialize, Deserialize)]
+/// HashMap<String, Vec<(String, Option<String>, Option<String>)>>  ->  HashMap<arch, Vec<(dependency, relop, version)>>
+type PackageDepDependencies = HashMap<String, Vec<(String, Option<String>, Option<String>)>>;
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct Package {
     pub name: String,
     pub epoch: usize,
@@ -19,24 +22,26 @@ pub struct Package {
     pub fail_arch: Option<FailArch>,
     pub description: String,
 
-    // HashMap<String, Vec<(String, Option<String>, Option<String>)>>  ->  HashMap<arch, Vec<(dependency, relop, version)>>
-    pub dependencies: HashMap<String, Vec<(String, Option<String>, Option<String>)>>, 
-    pub build_dependencies: HashMap<String, Vec<(String, Option<String>, Option<String>)>>,
-    pub package_suggests: HashMap<String, Vec<(String, Option<String>, Option<String>)>>,
-    pub package_provides: HashMap<String, Vec<(String, Option<String>, Option<String>)>>,
-    pub package_recommands: HashMap<String, Vec<(String, Option<String>, Option<String>)>>,
-    pub package_replaces: HashMap<String, Vec<(String, Option<String>, Option<String>)>>,
-    pub package_breaks: HashMap<String, Vec<(String, Option<String>, Option<String>)>>,
-    pub package_configs: HashMap<String, Vec<(String, Option<String>, Option<String>)>>,
+    pub dependencies: PackageDepDependencies,
+    pub build_dependencies: PackageDepDependencies,
+    pub package_suggests: PackageDepDependencies,
+    pub package_provides: PackageDepDependencies,
+    pub package_recommands: PackageDepDependencies,
+    pub package_replaces: PackageDepDependencies,
+    pub package_breaks: PackageDepDependencies,
+    pub package_configs: PackageDepDependencies,
 }
 
 const NAME_FILED: &str = "PKGNAME";
 // TODO: Add PKGSEC
 const MANDATORY_FIELDS: [&str; 2] = ["PKGVER", "PKGDES"];
-const ABBS_CATEGORIES:[&str;3] = ["core-", "base-", "extra-"];
+const ABBS_CATEGORIES: [&str; 3] = ["core-", "base-", "extra-"];
 
 impl Package {
-    pub fn from(context: &HashMap<String, String>,spec_path: &PathBuf) -> Result<Self, error::PackageError> {
+    pub fn from(
+        context: &HashMap<String, String>,
+        spec_path: &PathBuf,
+    ) -> Result<Self, error::PackageError> {
         let name = match context.get(NAME_FILED) {
             Some(name) => name.to_string(),
             None => {
@@ -56,7 +61,7 @@ impl Package {
                 });
             }
         }
-        
+
         // extract /tmp/aosc-os-abbs/extra-admin/packagekit/spec -> category: extra  section: admin
         let spec_path_str = spec_path.to_str().ok_or(PackageError {
             pkgname: name.clone(),
@@ -66,10 +71,10 @@ impl Package {
         let mut section = String::new();
         for abbs_category in ABBS_CATEGORIES {
             if let Some(pos1) = spec_path_str.find(abbs_category) {
-                if let Some(pos2) = spec_path_str[pos1..].find("/") {
+                if let Some(pos2) = spec_path_str[pos1..].find('/') {
                     let category_and_section = &spec_path_str[pos1..][..pos2];
                     section = category_and_section[abbs_category.len()..].to_string();
-                    category = abbs_category[..abbs_category.len()-1].to_string();
+                    category = abbs_category[..abbs_category.len() - 1].to_string();
                 }
             }
         }
@@ -136,10 +141,17 @@ impl Package {
             category,
             section,
             directory: {
-                let err = PackageError { pkgname: name.clone(), error: PackageErrorType::FieldSyntaxError("DIRECTORY".to_string()) };
+                let err = PackageError {
+                    pkgname: name,
+                    error: PackageErrorType::FieldSyntaxError("DIRECTORY".to_string()),
+                };
                 let mut spec_path = spec_path.clone();
-                spec_path.pop().then(||()).ok_or(err.clone())?;
-                let directory = spec_path.file_name().ok_or(err.clone())?.to_str().ok_or(err.clone())?;
+                spec_path.pop().then(|| ()).ok_or(err.clone())?;
+                let directory = spec_path
+                    .file_name()
+                    .ok_or_else(|| err.clone())?
+                    .to_str()
+                    .ok_or_else(|| err)?;
                 directory.to_string()
             },
             description: context.get("PKGDES").expect("").to_string(),
@@ -152,14 +164,23 @@ impl Package {
 fn get_field_with_arch_restriction(
     s: &str,
     context: &HashMap<String, String>,
-) -> HashMap<String, Vec<(String, Option<String>, Option<String>)>> {
+) -> PackageDepDependencies {
     let mut dep = HashMap::new();
     dep.insert(
         "default".to_string(),
-        get_items_from_bash_string(context.get(s).unwrap_or(&String::new())).iter().map(|s| split_by_relop(s)).collect(),
+        get_items_from_bash_string(context.get(s).unwrap_or(&String::new()))
+            .iter()
+            .map(|s| split_by_relop(s))
+            .collect(),
     );
     for (arch, deps) in get_fields_with_prefix(context, &format!("{s}__")) {
-        dep.insert(arch.to_lowercase(), get_items_from_bash_string(&deps).iter().map(|s| split_by_relop(s)).collect() );
+        dep.insert(
+            arch.to_lowercase(),
+            get_items_from_bash_string(&deps)
+                .iter()
+                .map(|s| split_by_relop(s))
+                .collect(),
+        );
     }
 
     dep
@@ -167,12 +188,16 @@ fn get_field_with_arch_restriction(
 
 // autogen<=5.18.12-1 -> (autogen, Some(<=), Some(5.18.12-1))
 fn split_by_relop(s: &str) -> (String, Option<String>, Option<String>) {
-    let f = |relop:&str| {
-        let v: Vec<&str> = s.split(relop).map(|s| s).collect();
+    let f = |relop: &str| {
+        let v: Vec<&str> = s.split(relop).collect();
         if v.len() == 1 {
             None
         } else {
-            Some((v[0].to_string(), Some(relop.to_string()), Some(v[1].to_string())))
+            Some((
+                v[0].to_string(),
+                Some(relop.to_string()),
+                Some(v[1].to_string()),
+            ))
         }
     };
 

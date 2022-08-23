@@ -16,11 +16,8 @@ use std::path::Path;
 
 #[inline]
 pub fn read_deb_db(db_path: &Path, pool: &mut PackagePool) -> Result<(), SolverError> {
-    let f = File::open(db_path).or_else(|_| {
-        Err(SolverError::DatabaseInitError(format!(
-            "Failed to open dpkg db {}",
-            db_path.display()
-        )))
+    let f = File::open(db_path).map_err(|_| {
+        SolverError::DatabaseInitError(format!("Failed to open dpkg db {}", db_path.display()))
     })?;
     let f = BufReader::with_capacity(50000, f);
     let mut field_buffer = HashMap::new();
@@ -36,8 +33,7 @@ pub fn read_deb_db(db_path: &Path, pool: &mut PackagePool) -> Result<(), SolverE
             let pkg_meta = fields_to_packagemeta(&field_buffer).map_err(|e| {
                 SolverError::DatabaseInitError(format!(
                     "Failed to parse section before line {}: {}",
-                    pos,
-                    e.to_string()
+                    pos, e
                 ))
             })?;
             pool.add(pkg_meta);

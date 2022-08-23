@@ -67,12 +67,11 @@ pub fn parse(c: &str, context: &mut Context) -> Result<(), Vec<ParseError>> {
         }
     }
 
-    if errors.len() == 0 {
+    if errors.is_empty() {
         Ok(())
-    }else{
+    } else {
         Err(errors)
     }
-
 }
 
 fn get_args_top_level(
@@ -85,7 +84,7 @@ fn get_args_top_level(
                 .chain(list.rest.iter().map(|and_or| match and_or {
                     ast::AndOr::And(cmd) | ast::AndOr::Or(cmd) => cmd,
                 }))
-                .map(|cmd| get_args_listable(&cmd, context))
+                .map(|cmd| get_args_listable(cmd, context))
                 .collect();
             for r in results {
                 match r {

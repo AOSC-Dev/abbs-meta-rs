@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
 pub enum FailArch {
     Include(Vec<String>),
     Exclude(Vec<String>),
@@ -21,6 +21,9 @@ impl FailArch {
 
 /// Example: "(amd64|arm64)"
 fn get_arch_from_set(s: &str) -> Result<Vec<String>, ()> {
+    if s.is_empty() {
+        return Err(());
+    }
     let chars: Vec<char> = s.chars().collect();
 
     if chars[0] == '(' && chars[chars.len() - 1] == ')' {
@@ -59,11 +62,11 @@ mod tests {
         let bad_cases = vec!["ppc64|amd64", "ppc64|(amd64|arm64)"];
 
         for (case, res) in ok_cases {
-            assert_eq!(get_arch_from_set(&case), Ok(res));
+            assert_eq!(get_arch_from_set(case), Ok(res));
         }
 
         for case in bad_cases {
-            assert_eq!(get_arch_from_set(&case), Err(()));
+            assert_eq!(get_arch_from_set(case), Err(()));
         }
     }
 }
