@@ -4,7 +4,7 @@ pub use error::{PackageError, PackageErrorType};
 pub use fail_arch::FailArch;
 
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, path::PathBuf};
+use std::{collections::HashMap, path::Path};
 
 /// HashMap<String, Vec<(String, Option<String>, Option<String>)>>  ->  HashMap<arch, Vec<(dependency, relop, version)>>
 type PackageDepDependencies = HashMap<String, Vec<(String, Option<String>, Option<String>)>>;
@@ -21,6 +21,7 @@ pub struct Package {
     pub release: usize, // Revision, but in apt's dictionary
     pub fail_arch: Option<FailArch>,
     pub description: String,
+    pub spec_path: String,
 
     pub dependencies: PackageDepDependencies,
     pub build_dependencies: PackageDepDependencies,
@@ -40,7 +41,7 @@ const ABBS_CATEGORIES: [&str; 3] = ["core-", "base-", "extra-"];
 impl Package {
     pub fn from(
         context: &HashMap<String, String>,
-        spec_path: &PathBuf,
+        spec_path: &Path,
     ) -> Result<Self, error::PackageError> {
         let name = match context.get(NAME_FILED) {
             Some(name) => name.to_string(),
@@ -142,19 +143,26 @@ impl Package {
             section,
             directory: {
                 let err = PackageError {
-                    pkgname: name,
+                    pkgname: name.clone(),
                     error: PackageErrorType::FieldSyntaxError("DIRECTORY".to_string()),
                 };
-                let mut spec_path = spec_path.clone();
-                spec_path.pop().then(|| ()).ok_or(err.clone())?;
+                let mut spec_path = spec_path.to_path_buf();
+                spec_path.pop().then(|| ()).ok_or_else(|| err.clone())?;
                 let directory = spec_path
                     .file_name()
                     .ok_or_else(|| err.clone())?
                     .to_str()
-                    .ok_or_else(|| err)?;
+                    .ok_or(err)?;
                 directory.to_string()
             },
             description: context.get("PKGDES").expect("").to_string(),
+            spec_path: spec_path
+                .to_str()
+                .ok_or(PackageError {
+                    pkgname: name,
+                    error: PackageErrorType::FieldSyntaxError("SPEC_PATH".to_string()),
+                })?
+                .to_string(),
         };
 
         Ok(res)
