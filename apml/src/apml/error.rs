@@ -42,7 +42,8 @@ fn locate_keyword(
         ])
     } else {
         search.build(&[keyword])
-    };
+    }
+    .ok()?;
 
     if start > end {
         return None;

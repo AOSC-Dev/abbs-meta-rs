@@ -7,9 +7,9 @@ edition = "2018"
 
 [dependencies]
 anyhow = "1"
-conch-parser = { git = "https://github.com/liushuyu/conch-parser", rev = "9fb470f4dcea6bb86fe64071ee5ae2121dbc4adf" }
+conch-parser = { git = "https://github.com/eatradish/conch-parser", rev = "99043086237afa78a6e02f084b241c7a65152dec" }
 regex = "1"
-aho-corasick = "0.7"
+aho-corasick = "1.1"
 annotate-snippets = { version = "0.9.0", features = ["color"] }
 
 [dev-dependencies]
