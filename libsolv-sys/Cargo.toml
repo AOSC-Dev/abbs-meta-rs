@@ -6,7 +6,7 @@ repository = "https://github.com/AOSC-Dev/abbs-meta-rs/tree/master/libsolv-sys"
 description = "Raw bindings to libsolv"
 keywords = ["libsolv", "solver", "dependency"]
 authors = ["liushuyu <liushuyu011@gmail.com>"]
-edition = "2018"
+edition = "2021"
 
 [dependencies]
 libc = "0.2"

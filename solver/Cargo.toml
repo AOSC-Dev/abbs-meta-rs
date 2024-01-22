@@ -2,7 +2,7 @@
 name = "solver"
 version = "0.1.0"
 authors = ["Leo Shen <i@szclsya.me>"]
-edition = "2018"
+edition = "2021"
 
 [dependencies]
 anyhow = "1.0"
