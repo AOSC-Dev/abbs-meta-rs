@@ -32,8 +32,9 @@ fn parse_whole_tree() -> Result<()> {
         let mut content = String::new();
         f.read_to_string(&mut content).unwrap();
         total += 1;
-        if try_parse(&content).is_err() {
+        if let Err(err) = try_parse(&content) {
             errors += 1;
+            println!("Got error parsing {}: {:?}", p.display(), err);
         }
     }
     println!(
