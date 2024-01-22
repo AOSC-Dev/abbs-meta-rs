@@ -239,7 +239,7 @@ mod tests {
             assert_eq!(get_substring(origin, c.0).unwrap(), c.1);
         }
         for c in err_cases {
-            assert!(get_substring(origin, c).is_ok());
+            assert!(get_substring(origin, c).is_err());
         }
     }
 }

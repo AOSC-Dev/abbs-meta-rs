@@ -136,7 +136,7 @@ mod tests {
     fn test_bad_glob() {
         let cases = vec!["[!x!]", "_!"];
         for i in cases {
-            assert!(get_regex_string_from_glob(i).is_ok());
+            assert!(get_regex_string_from_glob(i).is_err());
         }
     }
 }
