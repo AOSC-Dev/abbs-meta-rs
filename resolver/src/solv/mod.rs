@@ -6,6 +6,8 @@ pub use ffi::{Pool, Queue, Repo, Solver, Transaction, SOLVER_FLAG_BEST_OBEY_POLI
 use libc::c_int;
 use libsolv_sys::ffi::SOLVER_FLAG_ALLOW_UNINSTALL;
 
+use self::ffi::Spec;
+
 #[derive(Clone, Debug)]
 pub enum PackageAction {
     Noop,
@@ -27,7 +29,7 @@ pub struct PackageMeta {
 
 #[derive(Clone, Debug)]
 pub struct Task {
-    pub name: Option<String>,
+    pub spec: Option<Spec>,
     pub flags: c_int,
 }
 
@@ -36,8 +38,8 @@ pub fn calculate_deps(pool: &mut Pool, tasks: &[Task]) -> Result<Transaction> {
     let mut tmp = Queue::new();
     let mut q = Queue::new();
     for task in tasks {
-        if let Some(name) = &task.name {
-            tmp = pool.match_package(&name, tmp)?;
+        if let Some(pkg) = &task.spec {
+            tmp = pool.match_package(&pkg, tmp)?;
             q.extend(&tmp);
             q.mark_all_as(task.flags);
             continue;

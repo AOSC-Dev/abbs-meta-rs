@@ -3,11 +3,13 @@ use anyhow::{anyhow, Result};
 use hex::encode;
 use libc::{c_char, c_int};
 use libsolv_sys::ffi;
+use std::fmt::Display;
 use std::{convert::TryInto, ffi::CStr, os::unix::ffi::OsStrExt, slice};
 use std::{ffi::CString, path::Path, ptr::null_mut};
 
 pub const SELECTION_NAME: c_int = 1 << 0;
 pub const SELECTION_FLAT: c_int = 1 << 10;
+pub const SELECTION_REL: c_int = 1 << 5;
 
 pub const SOLVER_FLAG_BEST_OBEY_POLICY: c_int = 12;
 
@@ -88,6 +90,31 @@ fn solvable_to_meta(
     })
 }
 
+#[derive(Clone, Debug)]
+pub struct Spec {
+    pub name: String,
+    pub comp: Option<Comp>,
+}
+
+#[derive(Clone, Debug)]
+pub struct Comp {
+    symbol: String,
+    version: String,
+}
+
+impl Display for Spec {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.name)?;
+
+        if let Some(ref comp) = self.comp {
+            write!(f, " {}", comp.symbol)?;
+            write!(f, " {}", comp.version)?;
+        }
+
+        Ok(())
+    }
+}
+
 impl Pool {
     pub fn new() -> Pool {
         Pool {
@@ -95,23 +122,37 @@ impl Pool {
         }
     }
 
-    pub fn match_package(&self, name: &str, mut queue: Queue) -> Result<Queue> {
+    pub fn match_package(&self, pkg: &Spec, mut queue: Queue) -> Result<Queue> {
         if unsafe { (*self.pool).whatprovides.is_null() } {
             // we can't call createwhatprovides here because of how libsolv manages internal states
             return Err(anyhow!(
                 "internal error: `createwhatprovides` needs to be called first."
             ));
         }
-        let ret = unsafe {
-            ffi::selection_make(
-                self.pool,
-                &mut queue.queue,
-                cstr!(name),
-                SELECTION_NAME | SELECTION_FLAT,
-            )
+
+        let stmt = pkg.to_string();
+        let ret = if pkg.comp.is_some() {
+            unsafe {
+                ffi::selection_make(
+                    self.pool,
+                    &mut queue.queue,
+                    cstr!(&*stmt),
+                    SELECTION_REL | SELECTION_NAME | SELECTION_FLAT,
+                )
+            }
+        } else {
+            unsafe {
+                ffi::selection_make(
+                    self.pool,
+                    &mut queue.queue,
+                    cstr!(&*stmt),
+                    SELECTION_NAME | SELECTION_FLAT,
+                )
+            }
         };
+
         if ret < 1 {
-            return Err(anyhow!("Error matching the package: {}", name));
+            return Err(anyhow!("Error matching the package: {}", stmt));
         }
 
         Ok(queue)
