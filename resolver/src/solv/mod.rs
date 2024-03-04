@@ -14,8 +14,8 @@ pub struct Spec {
 
 #[derive(Clone, Debug)]
 pub struct Comp {
-    symbol: String,
-    version: String,
+    pub symbol: String,
+    pub version: String,
 }
 
 impl Display for Spec {
