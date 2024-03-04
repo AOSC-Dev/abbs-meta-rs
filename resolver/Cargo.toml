@@ -7,7 +7,7 @@ license = "MIT"
 description = "Debian libsolv resolver"
 
 [dependencies]
-libsolv-sys = { path = "../libsolv-sys" }
+libsolv-sys = "0.1"
 anyhow = "1"
 libc = "0.2"
 defaultmap = "0.5"
