@@ -1,12 +1,36 @@
 mod ffi;
-use std::path::PathBuf;
+use std::{fmt::Display, path::PathBuf};
 
 use anyhow::Result;
 pub use ffi::{Pool, Queue, Repo, Solver, Transaction, SOLVER_FLAG_BEST_OBEY_POLICY};
 use libc::c_int;
 use libsolv_sys::ffi::SOLVER_FLAG_ALLOW_UNINSTALL;
 
-use self::ffi::Spec;
+#[derive(Clone, Debug)]
+pub struct Spec {
+    pub name: String,
+    pub comp: Option<Comp>,
+}
+
+#[derive(Clone, Debug)]
+pub struct Comp {
+    symbol: String,
+    version: String,
+}
+
+impl Display for Spec {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.name)?;
+
+        if let Some(ref comp) = self.comp {
+            write!(f, " {}", comp.symbol)?;
+            write!(f, " {}", comp.version)?;
+        }
+
+        Ok(())
+    }
+}
+
 
 #[derive(Clone, Debug)]
 pub enum PackageAction {

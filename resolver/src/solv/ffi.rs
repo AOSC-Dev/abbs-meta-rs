@@ -1,9 +1,8 @@
-use super::{PackageAction, PackageMeta};
+use super::{PackageAction, PackageMeta, Spec};
 use anyhow::{anyhow, Result};
 use hex::encode;
 use libc::{c_char, c_int};
 use libsolv_sys::ffi;
-use std::fmt::Display;
 use std::{convert::TryInto, ffi::CStr, os::unix::ffi::OsStrExt, slice};
 use std::{ffi::CString, path::Path, ptr::null_mut};
 
@@ -90,30 +89,6 @@ fn solvable_to_meta(
     })
 }
 
-#[derive(Clone, Debug)]
-pub struct Spec {
-    pub name: String,
-    pub comp: Option<Comp>,
-}
-
-#[derive(Clone, Debug)]
-pub struct Comp {
-    symbol: String,
-    version: String,
-}
-
-impl Display for Spec {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.name)?;
-
-        if let Some(ref comp) = self.comp {
-            write!(f, " {}", comp.symbol)?;
-            write!(f, " {}", comp.version)?;
-        }
-
-        Ok(())
-    }
-}
 
 impl Pool {
     pub fn new() -> Pool {
