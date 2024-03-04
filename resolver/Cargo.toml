@@ -3,6 +3,8 @@ name = "deb-libsolv-resolver"
 version = "0.1.0"
 authors = ["liushuyu <liushuyu011@gmail.com>"]
 edition = "2021"
+license = "MIT"
+description = "Debian libsolv resolver"
 
 [dependencies]
 libsolv-sys = { path = "../libsolv-sys" }
