@@ -89,7 +89,6 @@ fn solvable_to_meta(
     })
 }
 
-
 impl Pool {
     pub fn new() -> Pool {
         Pool {

@@ -63,12 +63,8 @@ fn dump_whole_tree(is_spec: bool, dummy_import: bool) -> Result<String> {
         } else {
             if print_errors {
                 for result in parse_result.unwrap_err() {
-                    println!(
-                        "{}",
-                        result.pretty_print(&content, &p.to_string_lossy())
-                    );
+                    println!("{}", result.pretty_print(&content, &p.to_string_lossy()));
                 }
-                
             }
             errors += 1;
         }

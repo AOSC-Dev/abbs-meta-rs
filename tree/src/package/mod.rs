@@ -36,7 +36,7 @@ pub struct Package {
 const NAME_FILED: &str = "PKGNAME";
 // TODO: Add PKGSEC
 const MANDATORY_FIELDS: [&str; 2] = ["PKGVER", "PKGDES"];
-const ABBS_CATEGORIES: [&str; 3] = ["core-", "base-", "extra-"];
+const ABBS_CATEGORIES: [&str; 6] = ["app-", "core-", "desktop-", "lang-", "meta-", "runtime-"];
 
 impl Package {
     pub fn from(

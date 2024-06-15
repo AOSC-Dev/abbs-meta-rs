@@ -31,7 +31,6 @@ impl Display for Spec {
     }
 }
 
-
 #[derive(Clone, Debug)]
 pub enum PackageAction {
     Noop,
