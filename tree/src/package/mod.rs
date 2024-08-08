@@ -20,7 +20,7 @@ pub struct Package {
     pub section: String,
     pub directory: String,
     pub pkg_section: String,
-    pub release: usize, // Revision, but in apt's dictionary
+    pub release: String, // Revision, but in apt's dictionary
     pub fail_arch: Option<FailArch>,
     pub description: String,
     pub spec_path: String,
@@ -96,7 +96,7 @@ impl Package {
                         return Err(PackageError {
                             pkgname: name,
                             error: PackageErrorType::FieldTypeError(
-                                "PKGREL".to_string(),
+                                "PKGEPOCH".to_string(),
                                 "unsigned int".to_string(),
                             ),
                         });
@@ -105,19 +105,8 @@ impl Package {
                 None => 0,
             },
             release: match context.get("PKGREL") {
-                Some(rel) => match rel.parse() {
-                    Ok(rel) => rel,
-                    Err(_e) => {
-                        return Err(PackageError {
-                            pkgname: name,
-                            error: PackageErrorType::FieldTypeError(
-                                "PKGREL".to_string(),
-                                "unsigned int".to_string(),
-                            ),
-                        });
-                    }
-                },
-                None => 0,
+                Some(rel) => rel.to_string(),
+                None => "0".to_string(),
             },
             fail_arch: {
                 if let Some(s) = context.get("FAIL_ARCH") {
