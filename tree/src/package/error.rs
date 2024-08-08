@@ -17,6 +17,7 @@ pub enum PackageErrorType {
     MissingField(String),
     FieldTypeError(String, String),
     FieldSyntaxError(String),
+    InvalidPKGSECError(String),
 }
 
 impl fmt::Display for PackageErrorType {
@@ -35,6 +36,9 @@ impl fmt::Display for PackageErrorType {
             PackageErrorType::FieldSyntaxError(field_name) => {
                 write!(f, "Malformed syntax for field {}.", field_name)
             }
+	    PackageErrorType::InvalidPKGSECError(sec) => {
+		write!(f, "Invalid PKGSEC: {}.", sec)
+	    }
         }
     }
 }

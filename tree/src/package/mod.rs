@@ -1,8 +1,10 @@
 mod error;
 mod fail_arch;
+mod pkgsec;
 pub use error::{PackageError, PackageErrorType};
 pub use fail_arch::FailArch;
 
+use pkgsec::check_pkgsec;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, path::Path};
 
@@ -35,7 +37,7 @@ pub struct Package {
 
 const NAME_FILED: &str = "PKGNAME";
 // TODO: Add PKGSEC
-const MANDATORY_FIELDS: [&str; 2] = ["PKGVER", "PKGDES"];
+const MANDATORY_FIELDS: [&str; 3] = ["PKGVER", "PKGDES", "PKGSEC"];
 const ABBS_CATEGORIES: [&str; 6] = ["app-", "core-", "desktop-", "lang-", "meta-", "runtime-"];
 
 impl Package {
@@ -80,10 +82,12 @@ impl Package {
             }
         }
 
+	let pkg_section = check_pkgsec(&name.as_str(),
+		context.get("PKGSEC").unwrap_or(&"".to_string()).to_owned())?;
+
         // Get important fields
         let res = Package {
             name: context.get("PKGNAME").unwrap().to_string(),
-            //section: context.get("PKGSEC").unwrap().to_string(),
             version: context.get("PKGVER").unwrap().to_string(),
             epoch: match context.get("PKGEPOCH") {
                 Some(epoch) => match epoch.parse() {
@@ -138,7 +142,7 @@ impl Package {
             package_replaces: get_field_with_arch_restriction("PKGREP", context),
             package_breaks: get_field_with_arch_restriction("PKGBREAK", context),
             package_configs: get_field_with_arch_restriction("PKGCONFL", context),
-            pkg_section: context.get("PKGSEC").unwrap_or(&"".to_string()).to_string(),
+            pkg_section,
             category,
             section,
             directory: {
