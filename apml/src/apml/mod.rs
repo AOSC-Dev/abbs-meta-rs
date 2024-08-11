@@ -1,10 +1,12 @@
 mod error;
 mod glob;
 mod substitution;
+mod variables;
 
 use conch_parser::ast;
 use conch_parser::lexer::Lexer;
 use conch_parser::parse::DefaultParser;
+use variables::is_known_variable;
 use std::collections::HashMap;
 
 pub use self::error::{ParseError, ParseErrorInfo};
@@ -256,7 +258,13 @@ fn get_parameter_as_string(
     match parameter {
         ast::Parameter::Var(name) => match context.get(name) {
             Some(value) => Ok(Some(value.clone())),
-            None => Ok(None),
+            None => {
+		if is_known_variable(&name) {
+			Ok(Some(String::new()))
+		} else {
+			Ok(None)
+		}
+	    }
         },
         _ => Err(ParseErrorInfo::InvalidSyntax(
             "Unsupported parameter type.".to_string(),
