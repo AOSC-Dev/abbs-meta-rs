@@ -1,12 +1,14 @@
 use crate::package::PackageError;
 use abbs_meta_apml::ParseError;
-use std::fmt;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, thiserror::Error)]
 pub enum TreeError {
+    #[error("Filesystem error: {0}")]
     FsError(String),
-    ParseError(ParseError),
-    PackageError(PackageError),
+    #[error("Parse error: {0}")]
+    ParseError(#[from] ParseError),
+    #[error("Package error: {0}")]
+    PackageError(#[from] PackageError),
 }
 
 impl From<walkdir::Error> for TreeError {
@@ -18,23 +20,5 @@ impl From<walkdir::Error> for TreeError {
 impl From<std::io::Error> for TreeError {
     fn from(err: std::io::Error) -> Self {
         TreeError::FsError(err.to_string())
-    }
-}
-
-impl From<ParseError> for TreeError {
-    fn from(err: ParseError) -> Self {
-        TreeError::ParseError(err)
-    }
-}
-
-impl From<PackageError> for TreeError {
-    fn from(err: PackageError) -> Self {
-        TreeError::PackageError(err)
-    }
-}
-
-impl fmt::Display for TreeError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "")
     }
 }

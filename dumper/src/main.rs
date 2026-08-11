@@ -30,7 +30,7 @@ fn sh_quote(s: &str) -> String {
 /// This mirrors the reference implementation (bashd), which sources the
 /// files in a real shell. Only enabled when the `CMD_SUBST` environment
 /// variable is set.
-fn run_sh(stages: &[Vec<String>]) -> Result<String, String> {
+fn run_sh(stages: &[Vec<String>]) -> Result<String, ParseErrorInfo> {
     let pipeline = stages
         .iter()
         .map(|words| {
@@ -46,9 +46,12 @@ fn run_sh(stages: &[Vec<String>]) -> Result<String, String> {
         .arg("-c")
         .arg(&pipeline)
         .output()
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| ParseErrorInfo::SubstitutionError(e.to_string(), "$(".to_string()))?;
     if !out.status.success() {
-        return Err(format!("command failed: {pipeline}"));
+        return Err(ParseErrorInfo::SubstitutionError(
+            format!("command failed: {pipeline}"),
+            "$(".to_string(),
+        ));
     }
     // Bash strips trailing newlines from `$( ... )` output.
     Ok(String::from_utf8_lossy(&out.stdout)

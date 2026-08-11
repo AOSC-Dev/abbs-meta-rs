@@ -1,46 +1,18 @@
-use std::fmt;
-
-#[derive(Debug, Clone, Hash, Eq, PartialEq)]
+#[derive(Debug, Clone, Hash, Eq, PartialEq, thiserror::Error)]
+#[error("Failed to process {pkgname}: {error}")]
 pub struct PackageError {
     pub pkgname: String,
     pub error: PackageErrorType,
 }
 
-impl fmt::Display for PackageError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Failed to process {}: {}", self.pkgname, self.error)
-    }
-}
-
-#[derive(Debug, Clone, Hash, Eq, PartialEq)]
+#[derive(Debug, Clone, Hash, Eq, PartialEq, thiserror::Error)]
 pub enum PackageErrorType {
+    #[error("Field {0} missing.")]
     MissingField(String),
+    #[error("Field {0} cannot be parsed as {1}.")]
     FieldTypeError(String, String),
+    #[error("Malformed syntax for field {0}.")]
     FieldSyntaxError(String),
+    #[error("Invalid PKGSEC: {0}.")]
     InvalidPKGSECError(String),
 }
-
-impl fmt::Display for PackageErrorType {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            PackageErrorType::MissingField(field_name) => {
-                write!(f, "Field {} missing.", &field_name)
-            }
-            PackageErrorType::FieldTypeError(field_name, supposed_type) => {
-                write!(
-                    f,
-                    "Field {} cannot be parsed as {}.",
-                    field_name, supposed_type
-                )
-            }
-            PackageErrorType::FieldSyntaxError(field_name) => {
-                write!(f, "Malformed syntax for field {}.", field_name)
-            }
-	    PackageErrorType::InvalidPKGSECError(sec) => {
-		write!(f, "Invalid PKGSEC: {}.", sec)
-	    }
-        }
-    }
-}
-
-impl std::error::Error for PackageError {}

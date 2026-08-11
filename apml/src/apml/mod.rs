@@ -29,9 +29,16 @@ pub type Context = HashMap<String, Value>;
 ///
 /// Command substitutions (`$( ... )`) are rejected.
 pub fn parse(c: &str, context: &mut Context) -> Result<(), Vec<ParseError>> {
-    parse_with_runner(c, context, &mut |_stages: &[Vec<String>]| -> Result<String, String> {
-        Err("Command substitution is not allowed.".to_string())
-    })
+    parse_with_runner(
+        c,
+        context,
+        &mut |_stages: &[Vec<String>]| -> Result<String, ParseErrorInfo> {
+            Err(ParseErrorInfo::SubstitutionError(
+                "Command substitution is not allowed.".to_string(),
+                "$(".to_string(),
+            ))
+        },
+    )
 }
 
 /// Parse a `spec` / `defines` file and apply its variable assignments to

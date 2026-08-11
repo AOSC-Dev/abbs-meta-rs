@@ -16,7 +16,7 @@ pub type Context = HashMap<String, Value>;
 /// A runner for `$( ... )` command substitutions. Receives the expanded
 /// pipeline (each stage is a list of command words) and returns the
 /// command's standard output (without the trailing newline), or an error.
-pub type Runner<'a> = dyn FnMut(&[Vec<String>]) -> Result<String, String> + 'a;
+pub type Runner<'a> = dyn FnMut(&[Vec<String>]) -> Result<String, ParseErrorInfo> + 'a;
 
 pub fn eval_stmts(
     stmts: &[Stmt],
@@ -117,9 +117,7 @@ fn eval_fields_scalar(
                         }
                         stages.push(words);
                     }
-                    let s = runner(&stages).map_err(|e| {
-                        ParseErrorInfo::SubstitutionError(e, "$(".to_string())
-                    })?;
+                    let s = runner(&stages)?;
                     output.push_str(&s);
                 }
                 out.push_str(&output);
