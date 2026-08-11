@@ -17,25 +17,59 @@ mod value;
 use eval::{eval_stmts, Runner};
 use std::collections::HashMap;
 
-pub use error::{ParseError, ParseErrorInfo};
+pub use error::{Diagnostic, DiagnosticInfo, DiagnosticSpan, ParseErrorInfo};
 pub use value::Value;
 
 /// The variable context: name -> value.
 pub type Context = HashMap<String, Value>;
 
-/// Parse a `spec` / `defines` file and apply its variable assignments to
-/// `context`.
+/// The outcome of parsing a `spec` / `defines` file.
 ///
-/// Command substitutions (`$( ... )`) are **never executed**: they expand to
-/// an empty string, like an undefined variable. This keeps the parser safe
-/// to run on untrusted files. If you explicitly need real command output,
-/// use [`parse_with_runner`] (at your own risk).
-pub fn parse(c: &str, context: &mut Context) -> Result<(), Vec<ParseError>> {
-    parse_with_runner(c, context, &mut |_stages: &[Vec<String>]| Ok(String::new()))
+/// Parsing always produces a full report: fatal [`Diagnostic`]s (errors)
+/// that stopped some assignments from being applied, and non-fatal ones
+/// (warnings, e.g. a `$( ... )` command substitution that expanded to an
+/// empty string because it is never executed). Use [`ParseResult::is_ok`] to
+/// check whether parsing fully succeeded.
+#[derive(Debug, Default)]
+pub struct ParseResult {
+    pub errors: Vec<Diagnostic>,
+    pub warnings: Vec<Diagnostic>,
+}
+
+impl ParseResult {
+    /// Whether parsing succeeded without errors (warnings are not fatal).
+    pub fn is_ok(&self) -> bool {
+        self.errors.is_empty()
+    }
+
+    /// Whether parsing produced any errors.
+    pub fn is_err(&self) -> bool {
+        !self.errors.is_empty()
+    }
 }
 
 /// Parse a `spec` / `defines` file and apply its variable assignments to
-/// `context`, using `runner` to evaluate `$( ... )` command substitutions.
+/// `context`, returning a full [`ParseResult`] with any errors and warnings.
+///
+/// Command substitutions (`$( ... )`) are **never executed**: they expand to
+/// an empty string, like an undefined variable, and are reported as a
+/// [`Diagnostic`]. This keeps the parser safe to run on untrusted files.
+/// If you explicitly need real command output, use [`parse_with_runner`] (at
+/// your own risk).
+pub fn parse(c: &str, context: &mut Context) -> ParseResult {
+    // The default runner never executes commands, so an empty `$( ... )`
+    // means a command was skipped — surface that as a warning.
+    parse_impl(
+        c,
+        context,
+        &mut |_stages: &[Vec<String>]| Ok(String::new()),
+        true,
+    )
+}
+
+/// Parse a `spec` / `defines` file and apply its variable assignments to
+/// `context`, using `runner` to evaluate `$( ... )` command substitutions,
+/// returning a full [`ParseResult`] with any errors and warnings.
 ///
 /// # Security
 ///
@@ -46,30 +80,38 @@ pub fn parse(c: &str, context: &mut Context) -> Result<(), Vec<ParseError>> {
 /// The runner receives the expanded pipeline (each stage is a list of
 /// command words) and must return the command's standard output (trailing
 /// newline stripped), or an error.
-pub fn parse_with_runner(
+pub fn parse_with_runner(c: &str, context: &mut Context, runner: &mut Runner) -> ParseResult {
+    // A real runner executes commands; an empty result is a legitimate
+    // command output, so no "skipped command" warnings are emitted here.
+    parse_impl(c, context, runner, false)
+}
+
+fn parse_impl(
     c: &str,
     context: &mut Context,
     runner: &mut Runner,
-) -> Result<(), Vec<ParseError>> {
-    let stmts = parser::parse_program(c)?;
+    warn_skipped_command: bool,
+) -> ParseResult {
+    let stmts = match parser::parse_program(c) {
+        Ok(stmts) => stmts,
+        Err(errors) => return ParseResult { errors, warnings: Vec::new() },
+    };
 
-    let mut errors = Vec::new();
+    let mut result = ParseResult::default();
     for stmt in &stmts {
-        if let Err(e) = eval_stmts(std::slice::from_ref(stmt), context, runner) {
+        if let Err(e) = eval_stmts(
+            std::slice::from_ref(stmt),
+            context,
+            runner,
+            &mut result.warnings,
+            warn_skipped_command,
+        ) {
             let span = stmt.span;
-            errors.push(ParseError {
-                line: span.line,
-                col: span.col,
-                byte: span.byte,
-                prev_byte: span.byte,
-                error: e,
+            result.errors.push(Diagnostic {
+                span: span.into(),
+                info: DiagnosticInfo::Error(e),
             });
         }
     }
-
-    if errors.is_empty() {
-        Ok(())
-    } else {
-        Err(errors)
-    }
+    result
 }

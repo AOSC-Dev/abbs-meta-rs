@@ -1,19 +1,23 @@
-use abbs_meta_apml::{parse, parse_with_runner, Context, ParseError, Value};
+use abbs_meta_apml::{parse, parse_with_runner, Context, Diagnostic, DiagnosticInfo, Value};
 
 use anyhow::{anyhow, Result};
 use std::io::Read;
 use std::{fs::File, path::PathBuf};
 
-fn try_parse(content: &str) -> Result<(), Vec<ParseError>> {
+fn try_parse(content: &str) -> Result<(), Vec<Diagnostic>> {
     let mut context = Context::new();
-    parse(content, &mut context)?;
+    let result = parse(content, &mut context);
+    if !result.errors.is_empty() {
+        return Err(result.errors);
+    }
 
     Ok(())
 }
 
 fn parse_into(content: &str) -> Context {
     let mut context = Context::new();
-    parse(content, &mut context).unwrap();
+    let result = parse(content, &mut context);
+    assert!(result.is_ok(), "unexpected parse errors: {result:?}");
     context
 }
 
@@ -122,9 +126,41 @@ fn test_command_substitution_empty_by_default() {
     // The safe default never executes `$(...)`: it expands to an empty
     // string, like an undefined variable.
     let mut context = Context::new();
-    parse("A=\"$(pkg-config --libs)\"\nB=$(id -u)\n", &mut context).unwrap();
+    let result = parse("A=\"$(pkg-config --libs)\"\nB=$(id -u)\n", &mut context);
+    assert!(result.is_ok());
     assert_eq!(scalar(&context, "A"), "");
     assert_eq!(scalar(&context, "B"), "");
+}
+
+#[test]
+fn test_empty_command_substitution_reports_warning() {
+    // A skipped `$(...)` is surfaced as a warning: the value is empty not
+    // because the file said so, but because the command is never executed.
+    let mut ctx = Context::new();
+    let result = parse("A=\"$(pkg-config --libs)\"\n", &mut ctx);
+    assert!(result.is_ok());
+    assert_eq!(scalar(&ctx, "A"), "");
+    assert_eq!(result.warnings.len(), 1);
+    let DiagnosticInfo::Warning(msg) = &result.warnings[0].info else {
+        panic!("expected a warning, got {:?}", result.warnings[0].info);
+    };
+    assert!(msg.contains("command substitution"));
+    assert_eq!(result.warnings[0].span.line, 1);
+}
+
+#[test]
+fn test_runner_empty_output_is_not_a_warning() {
+    // With a real runner, empty output is a legitimate command result — the
+    // "(not executed)" warning only applies to the default no-exec parse.
+    let mut ctx = Context::new();
+    let r = parse_with_runner(
+        "A=\"$(true)\"",
+        &mut ctx,
+        &mut |_stages: &[Vec<String>]| Ok(String::new()),
+    );
+    assert!(r.is_ok());
+    assert_eq!(scalar(&ctx, "A"), "");
+    assert!(r.warnings.is_empty());
 }
 
 #[test]
@@ -145,7 +181,8 @@ fn test_command_substitution_with_runner() {
 #[test]
 fn test_command_substitution_pipeline() {
     let mut context = Context::new();
-    parse("PKGVER=1.2.3\n", &mut context).unwrap();
+    let result = parse("PKGVER=1.2.3\n", &mut context);
+    assert!(result.is_ok());
     let r = parse_with_runner(
         "A=\"$(echo ${PKGVER} | cut -d . -f2)\"",
         &mut context,
@@ -255,11 +292,10 @@ fn test_pretty_print_does_not_panic() {
     // to panic in the snippet renderer.
     let content = "A=1\nB=2\nC=3\nD=4\nE=5\nF=\"$(unterminated\n";
     let mut context = Context::new();
-    if let Err(errors) = parse(content, &mut context) {
-        for e in errors {
-            // Should not panic even when positions are off.
-            let _ = e.pretty_print(content, "test");
-        }
+    let result = parse(content, &mut context);
+    for e in result.errors {
+        // Should not panic even when positions are off.
+        let _ = e.pretty_print(content, "test");
     }
     let _ = anyhow!("ok");
 }
@@ -332,7 +368,8 @@ fn test_assignment_requires_no_whitespace() {
     // Since commands are forbidden in apml, only the no-whitespace form is
     // an assignment; the spaced forms must be rejected.
     let mut context = Context::new();
-    parse("a=b\n", &mut context).unwrap();
+    let result = parse("a=b\n", &mut context);
+    assert!(result.is_ok());
     assert_eq!(scalar(&context, "a"), "b");
 
     // `a = b`, `a =b`, `a =b=c` are all commands → the whole file is rejected.

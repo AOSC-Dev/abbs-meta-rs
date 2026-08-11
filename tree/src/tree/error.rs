@@ -1,12 +1,12 @@
 use crate::package::PackageError;
-use abbs_meta_apml::ParseError;
+use abbs_meta_apml::Diagnostic;
 
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum TreeError {
     #[error("Filesystem error: {0}")]
     FsError(String),
     #[error("Parse error: {0}")]
-    ParseError(#[from] ParseError),
+    ParseError(#[from] Diagnostic),
     #[error("Package error: {0}")]
     PackageError(#[from] PackageError),
 }

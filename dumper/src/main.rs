@@ -9,7 +9,7 @@
 //! The default dump requires `SPEC_DIR`; the subcommands accept a directory
 //! argument or fall back to the `SPEC_DIR` environment variable.
 
-use abbs_meta_apml::{parse, Context, ParseError, ParseErrorInfo, Value};
+use abbs_meta_apml::{parse, Context, Diagnostic, DiagnosticInfo, ParseErrorInfo, Value};
 use anyhow::Result;
 use std::{
     collections::HashMap,
@@ -21,7 +21,7 @@ use std::{
 const DUMMY_AB_IMPORT: &[&str] = &["SRCDIR", "PKGDIR", "PKGVER", "PKGREL", "ARCH"];
 
 #[inline]
-fn try_parse(content: &str, dummy_import: bool) -> Result<Context, Vec<ParseError>> {
+fn try_parse(content: &str, dummy_import: bool) -> Result<(Context, Vec<Diagnostic>), Vec<Diagnostic>> {
     let mut context = Context::new();
     if dummy_import {
         for pred in DUMMY_AB_IMPORT {
@@ -29,15 +29,18 @@ fn try_parse(content: &str, dummy_import: bool) -> Result<Context, Vec<ParseErro
         }
     }
     // Safe: `$( ... )` command substitutions are never executed — they
-    // expand to an empty string in `parse()`.
-    parse(content, &mut context)?;
+    // expand to an empty string, reported as a warning in the result.
+    let result = parse(content, &mut context);
     if dummy_import {
         for pred in DUMMY_AB_IMPORT {
             context.remove(&pred.to_string());
         }
     }
+    if !result.errors.is_empty() {
+        return Err(result.errors);
+    }
 
-    Ok(context)
+    Ok((context, result.warnings))
 }
 
 fn dump_whole_tree(is_spec: bool, dummy_import: bool) -> Result<String> {
@@ -69,7 +72,12 @@ fn dump_whole_tree(is_spec: bool, dummy_import: bool) -> Result<String> {
         f.read_to_string(&mut content).unwrap();
         total += 1;
         let parse_result = try_parse(&content, dummy_import && !is_spec);
-        if let Ok(context) = parse_result {
+        if let Ok((context, warnings)) = parse_result {
+            if print_errors && !warnings.is_empty() {
+                for w in warnings {
+                    println!("{}", w.pretty_print(&content, &p.to_string_lossy()));
+                }
+            }
             let name = p.strip_prefix(&spec_dir)?;
             dump.insert(name.to_string_lossy().to_string(), context);
         } else {
@@ -139,10 +147,14 @@ fn categorize(spec_dir: Option<String>) {
         for p in files.iter() {
             let content = read_file(p);
             let mut ctx = Context::new();
-            if let Err(errs) = parse(&content, &mut ctx) {
+            let result = parse(&content, &mut ctx);
+            if !result.errors.is_empty() {
                 total_err += 1;
-                for e in errs {
-                    let (cat, reason) = match &e.error {
+                for e in result.errors {
+                    let DiagnosticInfo::Error(err) = &e.info else {
+                        continue; // the errors list never holds warnings
+                    };
+                    let (cat, reason) = match err {
                         ParseErrorInfo::LexerError(r) => ("LexerError".to_string(), r.clone()),
                         ParseErrorInfo::InvalidSyntax(r) => {
                             ("InvalidSyntax".to_string(), r.clone())
@@ -192,21 +204,24 @@ fn filecat(spec_dir: Option<String>) {
     let spec_dir = spec_dir.expect("usage: abbs-meta-dump filecat [SPEC_DIR] (or set SPEC_DIR)");
     let files = collect_files(&spec_dir, "defines");
 
-    let cat_of = |e: &ParseErrorInfo| -> &'static str {
-        match e {
-            ParseErrorInfo::LexerError(_) => "lexer",
-            ParseErrorInfo::InvalidSyntax(_) => "invalid",
-            ParseErrorInfo::RestrictedSyntax(r, _) => {
-                if r.contains("without value") {
-                    "array-literal"
-                } else {
-                    "compound/redirect"
+    let cat_of = |d: &Diagnostic| -> &'static str {
+        match &d.info {
+            DiagnosticInfo::Error(e) => match e {
+                ParseErrorInfo::LexerError(_) => "lexer",
+                ParseErrorInfo::InvalidSyntax(_) => "invalid",
+                ParseErrorInfo::RestrictedSyntax(r, _) => {
+                    if r.contains("without value") {
+                        "array-literal"
+                    } else {
+                        "compound/redirect"
+                    }
                 }
-            }
-            ParseErrorInfo::ContextError(_, _) => "undefined-var",
-            ParseErrorInfo::SubstitutionError(_, _) => "substitution",
-            ParseErrorInfo::GlobError(_) => "glob",
-            ParseErrorInfo::RegexError(_) => "regex",
+                ParseErrorInfo::ContextError(_, _) => "undefined-var",
+                ParseErrorInfo::SubstitutionError(_, _) => "substitution",
+                ParseErrorInfo::GlobError(_) => "glob",
+                ParseErrorInfo::RegexError(_) => "regex",
+            },
+            DiagnosticInfo::Warning(_) => "warning",
         }
     };
 
@@ -218,9 +233,11 @@ fn filecat(spec_dir: Option<String>) {
     for p in files.iter() {
         let content = read_file(p);
         let mut ctx = Context::new();
-        if let Err(errs) = parse(&content, &mut ctx) {
+        let result = parse(&content, &mut ctx);
+        if !result.errors.is_empty() {
             fail += 1;
-            let mut cats: Vec<&'static str> = errs.iter().map(|e| cat_of(&e.error)).collect();
+            let mut cats: Vec<&'static str> =
+                result.errors.iter().map(|e| cat_of(e)).collect();
             cats.sort();
             cats.dedup();
             for c in cats {

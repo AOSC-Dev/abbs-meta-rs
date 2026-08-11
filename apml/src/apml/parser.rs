@@ -4,13 +4,13 @@
 //! and blank lines are allowed at the top level.
 
 use super::ast::*;
-use super::error::{ParseError, ParseErrorInfo};
+use super::error::{Diagnostic, DiagnosticInfo, ParseErrorInfo};
 use super::lexer::{Lexer, Token};
 
 /// Parse a whole source file into a list of statements.
 ///
 /// On syntax errors, all errors in the file are collected and returned.
-pub fn parse_program(src: &str) -> Result<Vec<Stmt>, Vec<ParseError>> {
+pub fn parse_program(src: &str) -> Result<Vec<Stmt>, Vec<Diagnostic>> {
     let mut lexer = Lexer::new(src);
     let mut stmts = Vec::new();
     let mut errors = Vec::new();
@@ -20,12 +20,9 @@ pub fn parse_program(src: &str) -> Result<Vec<Stmt>, Vec<ParseError>> {
             Ok(t) => t,
             Err(e) => {
                 let pos = lexer.span();
-                errors.push(ParseError {
-                    line: pos.line,
-                    col: pos.col,
-                    byte: pos.byte,
-                    prev_byte: pos.byte,
-                    error: e,
+                errors.push(Diagnostic {
+                    span: pos.into(),
+                    info: DiagnosticInfo::Error(e),
                 });
                 lexer.recover_to_newline();
                 continue;
@@ -41,39 +38,30 @@ pub fn parse_program(src: &str) -> Result<Vec<Stmt>, Vec<ParseError>> {
                     Ok(Token::Equals) => AssignOp::Eq,
                     Ok(Token::PlusEquals) => AssignOp::PlusEq,
                     Ok(Token::Newline) | Ok(Token::Eof) => {
-                        errors.push(ParseError {
-                            line: name_span.line,
-                            col: name_span.col,
-                            byte: name_span.byte,
-                            prev_byte: name_span.byte,
-                            error: ParseErrorInfo::RestrictedSyntax(
+                        errors.push(Diagnostic {
+                            span: name_span.into(),
+                            info: DiagnosticInfo::Error(ParseErrorInfo::RestrictedSyntax(
                                 format!("Variable {} assigned without value.", name),
                                 name,
-                            ),
+                            )),
                         });
                         continue;
                     }
                     Ok(_) => {
-                        errors.push(ParseError {
-                            line: name_span.line,
-                            col: name_span.col,
-                            byte: name_span.byte,
-                            prev_byte: name_span.byte,
-                            error: ParseErrorInfo::InvalidSyntax(
+                        errors.push(Diagnostic {
+                            span: name_span.into(),
+                            info: DiagnosticInfo::Error(ParseErrorInfo::InvalidSyntax(
                                 "Expected `=` or `+=` after variable name.".to_string(),
-                            ),
+                            )),
                         });
                         lexer.recover_to_newline();
                         continue;
                     }
                     Err(e) => {
                         let pos = lexer.span();
-                        errors.push(ParseError {
-                            line: pos.line,
-                            col: pos.col,
-                            byte: pos.byte,
-                            prev_byte: pos.byte,
-                            error: e,
+                        errors.push(Diagnostic {
+                            span: pos.into(),
+                            info: DiagnosticInfo::Error(e),
                         });
                         lexer.recover_to_newline();
                         continue;
@@ -85,12 +73,9 @@ pub fn parse_program(src: &str) -> Result<Vec<Stmt>, Vec<ParseError>> {
                         Ok(elems) => ValueExpr::Array(elems),
                         Err(e) => {
                             let pos = lexer.span();
-                            errors.push(ParseError {
-                                line: pos.line,
-                                col: pos.col,
-                                byte: pos.byte,
-                                prev_byte: pos.byte,
-                                error: e,
+                            errors.push(Diagnostic {
+                                span: pos.into(),
+                                info: DiagnosticInfo::Error(e),
                             });
                             lexer.recover_to_newline();
                             continue;
@@ -104,12 +89,9 @@ pub fn parse_program(src: &str) -> Result<Vec<Stmt>, Vec<ParseError>> {
                         Ok(w) => ValueExpr::Scalar(w),
                         Err(e) => {
                             let pos = lexer.span();
-                            errors.push(ParseError {
-                                line: pos.line,
-                                col: pos.col,
-                                byte: pos.byte,
-                                prev_byte: pos.byte,
-                                error: e,
+                            errors.push(Diagnostic {
+                                span: pos.into(),
+                                info: DiagnosticInfo::Error(e),
                             });
                             lexer.recover_to_newline();
                             continue;
@@ -126,27 +108,21 @@ pub fn parse_program(src: &str) -> Result<Vec<Stmt>, Vec<ParseError>> {
             }
             Token::Word(_) => {
                 let pos = lexer.last_span();
-                errors.push(ParseError {
-                    line: pos.line,
-                    col: pos.col,
-                    byte: pos.byte,
-                    prev_byte: pos.byte,
-                    error: ParseErrorInfo::InvalidSyntax(
+                errors.push(Diagnostic {
+                    span: pos.into(),
+                    info: DiagnosticInfo::Error(ParseErrorInfo::InvalidSyntax(
                         "Commands are not allowed.".to_string(),
-                    ),
+                    )),
                 });
                 lexer.recover_to_newline();
             }
             Token::Equals | Token::PlusEquals => {
                 let pos = lexer.last_span();
-                errors.push(ParseError {
-                    line: pos.line,
-                    col: pos.col,
-                    byte: pos.byte,
-                    prev_byte: pos.byte,
-                    error: ParseErrorInfo::InvalidSyntax(
+                errors.push(Diagnostic {
+                    span: pos.into(),
+                    info: DiagnosticInfo::Error(ParseErrorInfo::InvalidSyntax(
                         "Unexpected `=`.".to_string(),
-                    ),
+                    )),
                 });
                 lexer.recover_to_newline();
             }

@@ -5,7 +5,7 @@
 //! `VAR+="x"` / `VAR+=(...)` append to scalar / array values.
 
 use super::ast::*;
-use super::error::ParseErrorInfo;
+use super::error::{Diagnostic, DiagnosticInfo, ParseErrorInfo};
 use super::substitution;
 use super::value::Value;
 use std::collections::HashMap;
@@ -22,18 +22,26 @@ pub fn eval_stmts(
     stmts: &[Stmt],
     context: &mut Context,
     runner: &mut Runner,
+    warnings: &mut Vec<Diagnostic>,
+    warn_skipped_command: bool,
 ) -> Result<(), ParseErrorInfo> {
     for stmt in stmts {
-        eval_stmt(stmt, context, runner)?;
+        eval_stmt(stmt, context, runner, warnings, warn_skipped_command)?;
     }
     Ok(())
 }
 
-fn eval_stmt(stmt: &Stmt, ctx: &mut Context, runner: &mut Runner) -> Result<(), ParseErrorInfo> {
+fn eval_stmt(
+    stmt: &Stmt,
+    ctx: &mut Context,
+    runner: &mut Runner,
+    warnings: &mut Vec<Diagnostic>,
+    warn_skipped_command: bool,
+) -> Result<(), ParseErrorInfo> {
     let name = &stmt.name;
     match &stmt.value {
         ValueExpr::Scalar(w) => {
-            let s = eval_scalar_word(w, ctx, runner)?;
+            let s = eval_scalar_word(w, ctx, runner, warnings, warn_skipped_command)?;
             match stmt.op {
                 AssignOp::Eq => {
                     ctx.insert(name.clone(), Value::Scalar(s));
@@ -44,7 +52,13 @@ fn eval_stmt(stmt: &Stmt, ctx: &mut Context, runner: &mut Runner) -> Result<(), 
         ValueExpr::Array(words) => {
             let mut elems = Vec::new();
             for w in words {
-                elems.extend(eval_array_word(w, ctx, runner)?);
+                elems.extend(eval_array_word(
+                    w,
+                    ctx,
+                    runner,
+                    warnings,
+                    warn_skipped_command,
+                )?);
             }
             match stmt.op {
                 AssignOp::Eq => {
@@ -89,14 +103,26 @@ pub fn eval_scalar_word(
     w: &Word,
     ctx: &mut Context,
     runner: &mut Runner,
+    warnings: &mut Vec<Diagnostic>,
+    warn_skipped_command: bool,
 ) -> Result<String, ParseErrorInfo> {
-    eval_fields_scalar(&w.fields, ctx, runner)
+    eval_fields_scalar(
+        &w.fields,
+        w.span,
+        ctx,
+        runner,
+        warnings,
+        warn_skipped_command,
+    )
 }
 
 fn eval_fields_scalar(
     fields: &[Field],
+    span: Span,
     ctx: &mut Context,
     runner: &mut Runner,
+    warnings: &mut Vec<Diagnostic>,
+    warn_skipped_command: bool,
 ) -> Result<String, ParseErrorInfo> {
     let mut out = String::new();
     for f in fields {
@@ -104,8 +130,14 @@ fn eval_fields_scalar(
             Field::Literal(s) => out.push_str(s),
             Field::Escaped(c) => out.push(*c),
             Field::SingleQuoted(s) => out.push_str(s),
-            Field::DoubleQuoted(fs) => out.push_str(&eval_fields_scalar(fs, ctx, runner)?),
-            Field::Param(p) => out.push_str(&eval_param_scalar(p, ctx, runner)?),
+            Field::DoubleQuoted(fs) => {
+                out.push_str(&eval_fields_scalar(
+                    fs, span, ctx, runner, warnings, warn_skipped_command,
+                )?)
+            }
+            Field::Param(p) => {
+                out.push_str(&eval_param_scalar(p, ctx, runner, warnings, warn_skipped_command)?)
+            }
             Field::Command(cmds) => {
                 let mut output = String::new();
                 for cmd in cmds {
@@ -113,12 +145,31 @@ fn eval_fields_scalar(
                     for stage_words in &cmd.stages {
                         let mut words = Vec::new();
                         for w in stage_words {
-                            words.push(eval_scalar_word(w, ctx, runner)?);
+                            words.push(eval_scalar_word(
+                                w,
+                                ctx,
+                                runner,
+                                warnings,
+                                warn_skipped_command,
+                            )?);
                         }
                         stages.push(words);
                     }
                     let s = runner(&stages)?;
                     output.push_str(&s);
+                }
+                if warn_skipped_command && output.is_empty() {
+                    // The default runner never executes `$( ... )`, so an
+                    // empty result hides a skipped command. With a real
+                    // runner, empty output is a legitimate command result
+                    // and is not reported.
+                    warnings.push(Diagnostic {
+                        span: span.into(),
+                        info: DiagnosticInfo::Warning(
+                            "command substitution `$(...)` expanded to an empty string (not executed)"
+                                .to_string(),
+                        ),
+                    });
                 }
                 out.push_str(&output);
             }
@@ -138,6 +189,8 @@ fn eval_array_word(
     w: &Word,
     ctx: &mut Context,
     runner: &mut Runner,
+    warnings: &mut Vec<Diagnostic>,
+    warn_skipped_command: bool,
 ) -> Result<Vec<String>, ParseErrorInfo> {
     let mut values: Vec<String> = Vec::new();
     for f in &w.fields {
@@ -154,14 +207,14 @@ fn eval_array_word(
                         op,
                     }) = &fs[0]
                     {
-                        return apply_array_op(name, op, ctx, runner);
+                        return apply_array_op(name, op, ctx, runner, warnings, warn_skipped_command);
                     }
                     if let Field::Param(Param::Special('@')) = &fs[0] {
                         return Ok(Vec::new());
                     }
                 }
                 // Inside double quotes: no word splitting.
-                let s = eval_fields_scalar(fs, ctx, runner)?;
+                let s = eval_fields_scalar(fs, w.span, ctx, runner, warnings, warn_skipped_command)?;
                 append_or_push(&mut values, &s);
             }
             Field::Param(p) => {
@@ -174,7 +227,7 @@ fn eval_array_word(
                     } = p
                     {
                         let mut out = Vec::new();
-                        for e in apply_array_op(name, op, ctx, runner)? {
+                        for e in apply_array_op(name, op, ctx, runner, warnings, warn_skipped_command)? {
                             out.extend(ifs_split(&e));
                         }
                         return Ok(out);
@@ -184,7 +237,7 @@ fn eval_array_word(
                     }
                 }
                 // Unquoted expansion: word-split the result.
-                let s = eval_param_scalar(p, ctx, runner)?;
+                let s = eval_param_scalar(p, ctx, runner, warnings, warn_skipped_command)?;
                 split_append(&mut values, &s);
             }
             Field::Command(_) | Field::Arith(_) => {
@@ -192,7 +245,7 @@ fn eval_array_word(
                     span: w.span,
                     fields: vec![f.clone()],
                 };
-                let s = eval_scalar_word(&single, ctx, runner)?;
+                let s = eval_scalar_word(&single, ctx, runner, warnings, warn_skipped_command)?;
                 split_append(&mut values, &s);
             }
         }
@@ -207,6 +260,8 @@ fn apply_array_op(
     op: &BracedOp,
     ctx: &mut Context,
     runner: &mut Runner,
+    warnings: &mut Vec<Diagnostic>,
+    warn_skipped_command: bool,
 ) -> Result<Vec<String>, ParseErrorInfo> {
     let elems = array_elems(name, ctx);
     if elems.is_empty() {
@@ -214,7 +269,16 @@ fn apply_array_op(
     }
     let mut out = Vec::new();
     for e in elems {
-        out.push(eval_braced_with_origin(name, &e, true, op, ctx, runner)?);
+        out.push(eval_braced_with_origin(
+            name,
+            &e,
+            true,
+            op,
+            ctx,
+            runner,
+            warnings,
+            warn_skipped_command,
+        )?);
     }
     Ok(out)
 }
@@ -245,7 +309,7 @@ fn array_elems(name: &str, ctx: &Context) -> Vec<String> {
 
 /// Default IFS word splitting (space / tab / newline).
 fn ifs_split(s: &str) -> Vec<String> {
-    s.split(|c: char| c == ' ' || c == '\t' || c == '\n')
+    s.split([' ', '\t', '\n'])
         .filter(|x| !x.is_empty())
         .map(|x| x.to_string())
         .collect()
@@ -255,6 +319,8 @@ fn eval_param_scalar(
     p: &Param,
     ctx: &mut Context,
     runner: &mut Runner,
+    warnings: &mut Vec<Diagnostic>,
+    warn_skipped_command: bool,
 ) -> Result<String, ParseErrorInfo> {
     match p {
         Param::Plain(name) => Ok(param_value(name, None, ctx)),
@@ -263,7 +329,9 @@ fn eval_param_scalar(
             Some(Index::At) | Some(Index::Star) => Ok(format!("{}", array_elems(name, ctx).len())),
             _ => Ok(format!("{}", param_value(name, None, ctx).chars().count())),
         },
-        Param::Braced { name, index, op } => eval_braced(name, index, op, ctx, runner),
+        Param::Braced { name, index, op } => {
+            eval_braced(name, index, op, ctx, runner, warnings, warn_skipped_command)
+        }
     }
 }
 
@@ -288,10 +356,21 @@ fn eval_braced(
     op: &BracedOp,
     ctx: &mut Context,
     runner: &mut Runner,
+    warnings: &mut Vec<Diagnostic>,
+    warn_skipped_command: bool,
 ) -> Result<String, ParseErrorInfo> {
     let origin = param_value(name, index.as_ref(), ctx);
     let is_set = ctx.contains_key(name);
-    eval_braced_with_origin(name, &origin, is_set, op, ctx, runner)
+    eval_braced_with_origin(
+        name,
+        &origin,
+        is_set,
+        op,
+        ctx,
+        runner,
+        warnings,
+        warn_skipped_command,
+    )
 }
 
 /// Apply a braced operation to a single origin string (used both for scalar
@@ -303,29 +382,43 @@ fn eval_braced_with_origin(
     op: &BracedOp,
     ctx: &mut Context,
     runner: &mut Runner,
+    warnings: &mut Vec<Diagnostic>,
+    warn_skipped_command: bool,
 ) -> Result<String, ParseErrorInfo> {
     match op {
         BracedOp::Value => Ok(origin.to_string()),
         BracedOp::Default { colon, word } => {
-            let use_self = if *colon { is_set && !origin.is_empty() } else { is_set };
+            let use_self = if *colon {
+                is_set && !origin.is_empty()
+            } else {
+                is_set
+            };
             if use_self {
                 Ok(origin.to_string())
             } else {
-                eval_scalar_word(word, ctx, runner)
+                eval_scalar_word(word, ctx, runner, warnings, warn_skipped_command)
             }
         }
         BracedOp::Alternative { colon, word } => {
-            let use_alt = if *colon { is_set && !origin.is_empty() } else { is_set };
+            let use_alt = if *colon {
+                is_set && !origin.is_empty()
+            } else {
+                is_set
+            };
             if use_alt {
-                eval_scalar_word(word, ctx, runner)
+                eval_scalar_word(word, ctx, runner, warnings, warn_skipped_command)
             } else {
                 Ok(String::new())
             }
         }
         BracedOp::Error { colon, word } => {
-            let is_err = if *colon { !is_set || origin.is_empty() } else { !is_set };
+            let is_err = if *colon {
+                !is_set || origin.is_empty()
+            } else {
+                !is_set
+            };
             if is_err {
-                let msg = eval_scalar_word(word, ctx, runner)?;
+                let msg = eval_scalar_word(word, ctx, runner, warnings, warn_skipped_command)?;
                 Err(ParseErrorInfo::SubstitutionError(
                     format!("{} undefined: {}", name, msg),
                     name.to_string(),
@@ -335,9 +428,13 @@ fn eval_braced_with_origin(
             }
         }
         BracedOp::Assign { colon, word } => {
-            let need_assign = if *colon { !is_set || origin.is_empty() } else { !is_set };
+            let need_assign = if *colon {
+                !is_set || origin.is_empty()
+            } else {
+                !is_set
+            };
             if need_assign {
-                let val = eval_scalar_word(word, ctx, runner)?;
+                let val = eval_scalar_word(word, ctx, runner, warnings, warn_skipped_command)?;
                 ctx.insert(name.to_string(), Value::Scalar(val.clone()));
                 Ok(val)
             } else {
@@ -345,11 +442,11 @@ fn eval_braced_with_origin(
             }
         }
         BracedOp::Substring(word) => {
-            let cmd = eval_scalar_word(word, ctx, runner)?;
+            let cmd = eval_scalar_word(word, ctx, runner, warnings, warn_skipped_command)?;
             substitution::get_substring(origin, &cmd)
         }
         BracedOp::Trim { kind, word } => {
-            let pat = eval_scalar_word(word, ctx, runner)?;
+            let pat = eval_scalar_word(word, ctx, runner, warnings, warn_skipped_command)?;
             let (mode, greedy) = match kind {
                 TrimKind::PrefixShort => (true, false),
                 TrimKind::PrefixLong => (true, true),
@@ -364,8 +461,9 @@ fn eval_braced_with_origin(
             pattern,
             replacement,
         } => {
-            let pat = eval_scalar_word(pattern, ctx, runner)?;
-            let mut rep = eval_scalar_word(replacement, ctx, runner)?;
+            let pat = eval_scalar_word(pattern, ctx, runner, warnings, warn_skipped_command)?;
+            let mut rep =
+                eval_scalar_word(replacement, ctx, runner, warnings, warn_skipped_command)?;
             // Bash performs tilde expansion on an *unquoted* replacement that
             // begins with `~` (a `\~` escape or quoted `~` is not expanded).
             if should_tilde_expand(replacement) {
@@ -377,16 +475,12 @@ fn eval_braced_with_origin(
             let pat = if word.fields.is_empty() {
                 None
             } else {
-                Some(eval_scalar_word(word, ctx, runner)?)
+                Some(eval_scalar_word(word, ctx, runner, warnings, warn_skipped_command)?)
             };
             match kind {
-                CaseKind::UpperOnce => {
-                    substitution::get_upper_case(origin, pat.as_deref(), false)
-                }
+                CaseKind::UpperOnce => substitution::get_upper_case(origin, pat.as_deref(), false),
                 CaseKind::UpperAll => substitution::get_upper_case(origin, pat.as_deref(), true),
-                CaseKind::LowerOnce => {
-                    substitution::get_lower_case(origin, pat.as_deref(), false)
-                }
+                CaseKind::LowerOnce => substitution::get_lower_case(origin, pat.as_deref(), false),
                 CaseKind::LowerAll => substitution::get_lower_case(origin, pat.as_deref(), true),
             }
         }

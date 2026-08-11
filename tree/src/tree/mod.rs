@@ -56,8 +56,9 @@ impl Tree {
             let mut context = HashMap::new();
 
             // First parse spec
-            if let Err(e) = parse(&spec, &mut context) {
-                let e: Vec<String> = e.iter().map(|e| e.to_string()).collect();
+            let result = parse(&spec, &mut context);
+            if !result.is_ok() {
+                let e: Vec<String> = result.errors.iter().map(|e| e.to_string()).collect();
                 eprintln!(
                     "Failed to parse {}: {:?}, skipping.",
                     spec_path.display(),
@@ -68,8 +69,9 @@ impl Tree {
             // Modify context so that defines can understand
             spec_decorator(&mut context);
             // Then parse defines
-            if let Err(e) = parse(&defines, &mut context) {
-                let e: Vec<String> = e.iter().map(|e| e.to_string()).collect();
+            let result = parse(&defines, &mut context);
+            if !result.is_ok() {
+                let e: Vec<String> = result.errors.iter().map(|e| e.to_string()).collect();
                 eprintln!(
                     "Failed to parse {}: {:?}, skipping.",
                     defines_path.display(),
