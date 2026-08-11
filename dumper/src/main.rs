@@ -21,7 +21,10 @@ use std::{
 const DUMMY_AB_IMPORT: &[&str] = &["SRCDIR", "PKGDIR", "PKGVER", "PKGREL", "ARCH"];
 
 #[inline]
-fn try_parse(content: &str, dummy_import: bool) -> Result<(Context, Vec<Diagnostic>), Vec<Diagnostic>> {
+fn try_parse(
+    content: &str,
+    dummy_import: bool,
+) -> Result<(Context, Vec<Diagnostic>), Vec<Diagnostic>> {
     let mut context = Context::new();
     if dummy_import {
         for pred in DUMMY_AB_IMPORT {
@@ -133,8 +136,7 @@ fn read_file(path: &PathBuf) -> String {
 
 /// `categorize` subcommand: count parse errors by category and reason.
 fn categorize(spec_dir: Option<String>) {
-    let spec_dir = spec_dir
-        .expect("usage: abbs-meta-dump categorize [SPEC_DIR] (or set SPEC_DIR)");
+    let spec_dir = spec_dir.expect("usage: abbs-meta-dump categorize [SPEC_DIR] (or set SPEC_DIR)");
     for is_spec in [true, false] {
         let target = if is_spec { "spec" } else { "defines" };
         let files = collect_files(&spec_dir, target);
@@ -236,8 +238,7 @@ fn filecat(spec_dir: Option<String>) {
         let result = parse(&content, &mut ctx);
         if !result.errors.is_empty() {
             fail += 1;
-            let mut cats: Vec<&'static str> =
-                result.errors.iter().map(|e| cat_of(e)).collect();
+            let mut cats: Vec<&'static str> = result.errors.iter().map(|e| cat_of(e)).collect();
             cats.sort();
             cats.dedup();
             for c in cats {

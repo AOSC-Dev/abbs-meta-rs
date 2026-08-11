@@ -95,9 +95,7 @@ fn test_arrays() {
 #[test]
 fn test_array_expansion() {
     // "..." containing only ${arr[@]} expands element-by-element.
-    let ctx = parse_into(
-        "A=(x y)\nB=(\"${A[@]}\" z)\nC=\"${A[@]}\"\nD=(${A[@]})\n",
-    );
+    let ctx = parse_into("A=(x y)\nB=(\"${A[@]}\" z)\nC=\"${A[@]}\"\nD=(${A[@]})\n");
     match ctx.get("B") {
         Some(Value::Array(b)) => assert_eq!(b, &vec!["x", "y", "z"]),
         other => panic!("expected array, got {other:?}"),
@@ -111,9 +109,7 @@ fn test_array_expansion() {
 
 #[test]
 fn test_append() {
-    let ctx = parse_into(
-        "PKGBREAK=\"a\"\nPKGBREAK+=\" b\"\nARR=(1)\nARR+=(2 3)\n",
-    );
+    let ctx = parse_into("PKGBREAK=\"a\"\nPKGBREAK+=\" b\"\nARR=(1)\nARR+=(2 3)\n");
     assert_eq!(scalar(&ctx, "PKGBREAK"), "a b");
     match ctx.get("ARR") {
         Some(Value::Array(a)) => assert_eq!(a, &vec!["1", "2", "3"]),
@@ -153,11 +149,9 @@ fn test_runner_empty_output_is_not_a_warning() {
     // With a real runner, empty output is a legitimate command result — the
     // "(not executed)" warning only applies to the default no-exec parse.
     let mut ctx = Context::new();
-    let r = parse_with_runner(
-        "A=\"$(true)\"",
-        &mut ctx,
-        &mut |_stages: &[Vec<String>]| Ok(String::new()),
-    );
+    let r = parse_with_runner("A=\"$(true)\"", &mut ctx, &mut |_stages: &[Vec<
+        String,
+    >]| Ok(String::new()));
     assert!(r.is_ok());
     assert_eq!(scalar(&ctx, "A"), "");
     assert!(r.warnings.is_empty());
@@ -191,7 +185,12 @@ fn test_command_substitution_pipeline() {
                 stages,
                 &[
                     vec!["echo".to_string(), "1.2.3".to_string()],
-                    vec!["cut".to_string(), "-d".to_string(), ".".to_string(), "-f2".to_string()],
+                    vec![
+                        "cut".to_string(),
+                        "-d".to_string(),
+                        ".".to_string(),
+                        "-f2".to_string()
+                    ],
                 ]
             );
             Ok("2".to_string())
@@ -275,10 +274,10 @@ fn test_self_reference_and_forward_reference() {
 #[test]
 fn test_unsupported_syntax_errors() {
     let cases = [
-        "'unterminated",      // unterminated single quote
-        "A=\"unterminated",   // unterminated double quote
-        "A=(",                // unterminated array
-        "A=${",               // unterminated braced expansion
+        "'unterminated",    // unterminated single quote
+        "A=\"unterminated", // unterminated double quote
+        "A=(",              // unterminated array
+        "A=${",             // unterminated braced expansion
     ];
     for c in cases {
         let mut context = Context::new();
@@ -311,7 +310,10 @@ fn test_array_element_with_quoted_spaces_not_split() {
     );
     match ctx.get("A") {
         Some(Value::Array(a)) => {
-            assert_eq!(a, &vec!["--with-lisp=sbcl --dynamic-space-size 4096", "--enable-gmp"]);
+            assert_eq!(
+                a,
+                &vec!["--with-lisp=sbcl --dynamic-space-size 4096", "--enable-gmp"]
+            );
         }
         other => panic!("expected array, got {other:?}"),
     }
@@ -334,9 +336,7 @@ fn test_array_element_split_at_unquoted_expansion() {
 #[test]
 fn test_array_element_substitution() {
     // `${arr[@]/pat/rep}` applies the substitution to every element.
-    let ctx = parse_into(
-        "A=(x-1 y-2)\nB=(\"${A[@]/-/\\/}\")\nC=(\"${A[@]^^}\")\n",
-    );
+    let ctx = parse_into("A=(x-1 y-2)\nB=(\"${A[@]/-/\\/}\")\nC=(\"${A[@]^^}\")\n");
     match ctx.get("B") {
         Some(Value::Array(b)) => assert_eq!(b, &vec!["x/1", "y/2"]),
         other => panic!("expected array, got {other:?}"),

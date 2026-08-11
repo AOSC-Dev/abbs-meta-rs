@@ -94,7 +94,12 @@ fn parse_impl(
 ) -> ParseResult {
     let stmts = match parser::parse_program(c) {
         Ok(stmts) => stmts,
-        Err(errors) => return ParseResult { errors, warnings: Vec::new() },
+        Err(errors) => {
+            return ParseResult {
+                errors,
+                warnings: Vec::new(),
+            }
+        }
     };
 
     let mut result = ParseResult::default();
