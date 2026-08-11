@@ -110,41 +110,128 @@ def collect_files(spec: bool) -> list:
     return sorted(files)
 
 
+def has_command_substitution(content: str) -> bool:
+    """True if the file contains a `$(` that a real shell would execute (and
+    which the apml parser deliberately never executes).
+
+    Mirrors dumper/tools/verify/verifier.py so both sides skip the same files:
+    single quotes and comments protect a `$(`; double quotes and escapes do
+    not."""
+    state = "normal"  # normal | single | double | comment
+    at_word_start = True
+    escaped = False
+    i = 0
+    n = len(content)
+    while i < n:
+        c = content[i]
+        if state == "comment":
+            if c == "\n":
+                state = "normal"
+                at_word_start = True
+            i += 1
+            continue
+        if state == "single":
+            if c == "'":
+                state = "normal"
+            i += 1
+            continue
+        if state == "double":
+            if escaped:
+                escaped = False
+            elif c == "\\":
+                escaped = True
+            elif c == '"':
+                state = "normal"
+            elif c == "$" and i + 1 < n and content[i + 1] == "(":
+                return True
+            i += 1
+            continue
+        # normal
+        if escaped:
+            escaped = False
+        elif c == "\\":
+            escaped = True
+        elif c == "'":
+            state = "single"
+        elif c == '"':
+            state = "double"
+        elif c == "#" and at_word_start:
+            state = "comment"
+        elif c == "$" and i + 1 < n and content[i + 1] == "(":
+            return True
+        elif c in " \t\n":
+            at_word_start = True
+        else:
+            at_word_start = False
+        i += 1
+    return False
+
+
+def run_one(path: str, timeout: int = 60) -> subprocess.CompletedProcess:
+    """Source one file in clean bash and return the completed process."""
+    return subprocess.run(
+        [
+            "env",
+            "-i",
+            "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+            "/bin/bash",
+            "--norc",
+            "-c",
+            BASH_SCRIPT,
+            "--",
+            path,
+        ],
+        capture_output=True,
+        timeout=timeout,
+    )
+
+
 def run_all(spec: bool) -> dict:
     files = collect_files(spec)
     all_vars = {}
     errors = 0
+    skipped = 0
     total = len(files)
     for idx, path in enumerate(files):
         if idx % 500 == 0:
             print(f"\r[{idx}/{total}] Processing ...", end="", flush=True)
+        # Files containing `$(...)` need external commands (llvm-config,
+        # pkg-config, ...) that may be absent, and an array assignment whose
+        # substitution fails makes `source` return non-zero when it is the
+        # last statement. The verifier already skips these files, so they are
+        # excluded here too.
+        with open(path, "rt", errors="replace") as f:
+            if has_command_substitution(f.read()):
+                skipped += 1
+                continue
         try:
-            proc = subprocess.run(
-                [
-                    "env",
-                    "-i",
-                    "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-                    "/bin/bash",
-                    "--norc",
-                    "-c",
-                    BASH_SCRIPT,
-                    "--",
-                    path,
-                ],
-                capture_output=True,
-                timeout=60,
-            )
-        except (subprocess.TimeoutExpired, OSError) as ex:
-            print(f"\rFailure: {path}: {ex}")
+            proc = run_one(path)
+        except subprocess.TimeoutExpired:
+            # A timeout is usually a transiently slow runner; retry once
+            # before declaring the file unsourceable.
+            try:
+                proc = run_one(path)
+            except subprocess.TimeoutExpired:
+                print(f"\rFailure (timeout): {os.path.relpath(path, SPEC_DIR)}")
+                errors += 1
+                continue
+        except OSError as ex:
+            print(f"\rFailure: {os.path.relpath(path, SPEC_DIR)}: {ex}")
             errors += 1
             continue
         if proc.returncode != 0:
+            print(f"\rFailure (bash could not source): {os.path.relpath(path, SPEC_DIR)}")
+            if proc.stderr:
+                print(proc.stderr.decode(errors="replace"))
             errors += 1
             continue
         key = os.path.relpath(path, SPEC_DIR)
         all_vars[key] = parse_stream(proc.stdout)
     print(f"\r[{total}/{total}] Processing ...")
-    print(f"Total: {total}, Errors: {errors} ({errors * 100 // max(total, 1)}%)")
+    print(
+        f"Total: {total}, Errors: {errors} ({errors * 100 // max(total, 1)}%), "
+        f"Skipped: {skipped}"
+    )
     if errors:
         # Fail the run (e.g. in CI) when bash cannot source files — this is a
         # signal that the reference data is incomplete.
