@@ -86,13 +86,13 @@ def compare_dumps(spec: bool) -> bool:
         except OSError:
             return False
 
+    rs_only = []
     for k, v in rs.items():
         if is_skipped(k):
             skipped.append(k)
             continue
         if k not in reference:
-            print(f'{k}: Present in Rust dump but missing from reference')
-            diffs += 1
+            rs_only.append(k)
         elif reference[k] != v:
             print(
                 f'{k}: Different from reference:\n'
@@ -102,12 +102,26 @@ def compare_dumps(spec: bool) -> bool:
                 f'New: {json.dumps(v, ensure_ascii=False)}\n'
                 f'------------------------')
             diffs += 1
+    ref_only = []
     for k in reference:
         if is_skipped(k):
             continue
         if k not in rs:
-            print(f'{k}: Present in reference but missing from Rust dump')
+            ref_only.append(k)
+
+    # Package coverage: both dumps must cover the same packages (files),
+    # apart from the deliberately skipped command-substitution ones.
+    if rs_only or ref_only:
+        print('Package coverage differs between the two dumps:')
+        for k in sorted(rs_only):
+            print(f'  in Rust dump but missing from reference: {k}')
             diffs += 1
+        for k in sorted(ref_only):
+            print(f'  in reference but missing from Rust dump: {k}')
+            diffs += 1
+    else:
+        both = sorted(set(reference) & set(rs))
+        print(f'Package coverage identical: {len(both)} files on both sides')
 
     skipped = sorted(set(skipped))
     # Confirm both sides skip the same files: reference_dump.py persists its
