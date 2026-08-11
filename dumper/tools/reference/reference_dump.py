@@ -190,7 +190,7 @@ def run_all(spec: bool) -> dict:
     files = collect_files(spec)
     all_vars = {}
     errors = 0
-    skipped = 0
+    skipped_files = []
     total = len(files)
     for idx, path in enumerate(files):
         if idx % 500 == 0:
@@ -202,7 +202,7 @@ def run_all(spec: bool) -> dict:
         # excluded here too.
         with open(path, "rt", errors="replace") as f:
             if has_command_substitution(f.read()):
-                skipped += 1
+                skipped_files.append(os.path.relpath(path, SPEC_DIR))
                 continue
         try:
             proc = run_one(path)
@@ -230,8 +230,15 @@ def run_all(spec: bool) -> dict:
     print(f"\r[{total}/{total}] Processing ...")
     print(
         f"Total: {total}, Errors: {errors} ({errors * 100 // max(total, 1)}%), "
-        f"Skipped: {skipped}"
+        f"Skipped: {len(skipped_files)}"
     )
+    for rel in sorted(skipped_files):
+        print(f"  skipped: {rel}")
+    # Persist the skip list so the verifier can confirm both sides skip the
+    # same files.
+    suffix = "" if spec else "_def"
+    with open(f"/tmp/all_vars{suffix}_skipped.json", "wt") as f:
+        json.dump(sorted(skipped_files), f)
     if errors:
         # Fail the run (e.g. in CI) when bash cannot source files — this is a
         # signal that the reference data is incomplete.

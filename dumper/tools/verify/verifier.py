@@ -65,7 +65,7 @@ def has_command_substitution(content: str) -> bool:
 def compare_dumps(spec: bool) -> bool:
     print(f'Finding differences in `{"spec" if spec else "defines"}` ...')
     diffs = 0
-    skipped = 0
+    skipped = []
     ref_path = '/tmp/all_vars.json' if spec else '/tmp/all_vars_def.json'
     rs_path = '/tmp/all_vars_rs.json' if spec else '/tmp/all_vars_def_rs.json'
     with open(ref_path, 'rt') as f:
@@ -88,7 +88,7 @@ def compare_dumps(spec: bool) -> bool:
 
     for k, v in rs.items():
         if is_skipped(k):
-            skipped += 1
+            skipped.append(k)
             continue
         if k not in reference:
             print(f'{k}: Present in Rust dump but missing from reference')
@@ -109,9 +109,30 @@ def compare_dumps(spec: bool) -> bool:
             print(f'{k}: Present in reference but missing from Rust dump')
             diffs += 1
 
+    skipped = sorted(set(skipped))
+    # Confirm both sides skip the same files: reference_dump.py persists its
+    # skip list, so a divergence between the two has_command_substitution
+    # copies is caught here instead of silently corrupting the comparison.
+    suffix = '' if spec else '_def'
+    try:
+        with open(f'/tmp/all_vars{suffix}_skipped.json', 'rt') as f:
+            ref_skipped = sorted(json.load(f))
+    except OSError:
+        ref_skipped = None
+    if ref_skipped is not None and ref_skipped != skipped:
+        print('Skip list mismatch between reference and verifier:')
+        only_ref = sorted(set(ref_skipped) - set(skipped))
+        only_ver = sorted(set(skipped) - set(ref_skipped))
+        if only_ref:
+            print(f'  skipped by reference only: {only_ref}')
+        if only_ver:
+            print(f'  skipped by verifier only:  {only_ver}')
+        diffs += 1
+
     print(
-        f'Skipped {skipped} files containing command substitution (`$(...)`), '
-        f'which the parser refuses to execute')
+        f'Skipped {len(skipped)} files containing command substitution (`$(...)`):')
+    for k in skipped:
+        print(f'  {k}')
     print(f'Found {diffs} differences between implementations')
     return diffs > 0
 
