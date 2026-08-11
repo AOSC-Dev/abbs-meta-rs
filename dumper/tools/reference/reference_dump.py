@@ -145,6 +145,10 @@ def run_all(spec: bool) -> dict:
         all_vars[key] = parse_stream(proc.stdout)
     print(f"\r[{total}/{total}] Processing ...")
     print(f"Total: {total}, Errors: {errors} ({errors * 100 // max(total, 1)}%)")
+    if errors:
+        # Fail the run (e.g. in CI) when bash cannot source files — this is a
+        # signal that the reference data is incomplete.
+        sys.exit(f"failed to source {errors} of {total} files")
     return all_vars
 
 

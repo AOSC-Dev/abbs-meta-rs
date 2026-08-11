@@ -118,9 +118,13 @@ fn test_append() {
 }
 
 #[test]
-fn test_command_substitution_rejected_by_default() {
+fn test_command_substitution_empty_by_default() {
+    // The safe default never executes `$(...)`: it expands to an empty
+    // string, like an undefined variable.
     let mut context = Context::new();
-    assert!(parse("A=\"$(pkg-config --libs)\"", &mut context).is_err());
+    parse("A=\"$(pkg-config --libs)\"\nB=$(id -u)\n", &mut context).unwrap();
+    assert_eq!(scalar(&context, "A"), "");
+    assert_eq!(scalar(&context, "B"), "");
 }
 
 #[test]
@@ -320,4 +324,22 @@ fn test_escaped_tilde_not_expanded() {
     // A `\~` (escaped) replacement is not tilde-expanded.
     let ctx = parse_into("V=abc-def\nA=${V/\\-/\\~}\n");
     assert_eq!(scalar(&ctx, "A"), "abc~def");
+}
+
+#[test]
+fn test_assignment_requires_no_whitespace() {
+    // In bash `a=b` is an assignment, while `a = b` is a command named `a`.
+    // Since commands are forbidden in apml, only the no-whitespace form is
+    // an assignment; the spaced forms must be rejected.
+    let mut context = Context::new();
+    parse("a=b\n", &mut context).unwrap();
+    assert_eq!(scalar(&context, "a"), "b");
+
+    // `a = b`, `a =b`, `a =b=c` are all commands → the whole file is rejected.
+    for bad in ["a = b\n", "a =b\n", "a =b=c\n", "a= b\n"] {
+        let mut ctx = Context::new();
+        assert!(parse(bad, &mut ctx).is_err(), "expected error for {bad:?}");
+        // Nothing is applied when the file contains a syntax error.
+        assert!(!ctx.contains_key("a"), "expected no assignment for {bad:?}");
+    }
 }

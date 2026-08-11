@@ -9,7 +9,7 @@
 //! The default dump requires `SPEC_DIR`; the subcommands accept a directory
 //! argument or fall back to the `SPEC_DIR` environment variable.
 
-use abbs_meta_apml::{parse, parse_with_runner, Context, ParseError, ParseErrorInfo, Value};
+use abbs_meta_apml::{parse, Context, ParseError, ParseErrorInfo, Value};
 use anyhow::Result;
 use std::{
     collections::HashMap,
@@ -20,45 +20,6 @@ use std::{
 
 const DUMMY_AB_IMPORT: &[&str] = &["SRCDIR", "PKGDIR", "PKGVER", "PKGREL", "ARCH"];
 
-/// Shell-quote a word for `sh -c` evaluation.
-fn sh_quote(s: &str) -> String {
-    format!("'{}'", s.replace('\'', "'\\''"))
-}
-
-/// Run a `$( ... )` command substitution through `sh -c`.
-///
-/// This mirrors the reference implementation (bashd), which sources the
-/// files in a real shell. Only enabled when the `CMD_SUBST` environment
-/// variable is set.
-fn run_sh(stages: &[Vec<String>]) -> Result<String, ParseErrorInfo> {
-    let pipeline = stages
-        .iter()
-        .map(|words| {
-            words
-                .iter()
-                .map(|w| sh_quote(w))
-                .collect::<Vec<_>>()
-                .join(" ")
-        })
-        .collect::<Vec<_>>()
-        .join(" | ");
-    let out = std::process::Command::new("sh")
-        .arg("-c")
-        .arg(&pipeline)
-        .output()
-        .map_err(|e| ParseErrorInfo::SubstitutionError(e.to_string(), "$(".to_string()))?;
-    if !out.status.success() {
-        return Err(ParseErrorInfo::SubstitutionError(
-            format!("command failed: {pipeline}"),
-            "$(".to_string(),
-        ));
-    }
-    // Bash strips trailing newlines from `$( ... )` output.
-    Ok(String::from_utf8_lossy(&out.stdout)
-        .trim_end_matches('\n')
-        .to_string())
-}
-
 #[inline]
 fn try_parse(content: &str, dummy_import: bool) -> Result<Context, Vec<ParseError>> {
     let mut context = Context::new();
@@ -67,11 +28,9 @@ fn try_parse(content: &str, dummy_import: bool) -> Result<Context, Vec<ParseErro
             context.insert(pred.to_string(), Value::Scalar(String::new()));
         }
     }
-    if std::env::var_os("CMD_SUBST").is_some() {
-        parse_with_runner(content, &mut context, &mut |stages| run_sh(stages))?;
-    } else {
-        parse(content, &mut context)?;
-    }
+    // Safe: `$( ... )` command substitutions are never executed — they
+    // expand to an empty string in `parse()`.
+    parse(content, &mut context)?;
     if dummy_import {
         for pred in DUMMY_AB_IMPORT {
             context.remove(&pred.to_string());

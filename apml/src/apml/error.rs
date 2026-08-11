@@ -1,7 +1,4 @@
-use annotate_snippets::{
-    display_list::{DisplayList, FormatOptions},
-    snippet::{Annotation, AnnotationType, Slice, Snippet, SourceAnnotation},
-};
+use annotate_snippets::{AnnotationKind, Level, Renderer, Snippet};
 use std::fmt;
 
 #[derive(Debug, Clone)]
@@ -48,33 +45,14 @@ impl ParseError {
             end += 1;
         }
 
-        let marker = SourceAnnotation {
-            label: reason,
-            annotation_type: AnnotationType::Error,
-            range: (start, end),
-        };
-        let title = Annotation {
-            label: Some(err_type),
-            id: None,
-            annotation_type: AnnotationType::Error,
-        };
-        let snippet = Snippet {
-            title: Some(title),
-            footer: vec![],
-            slices: vec![Slice {
-                source,
-                line_start: 1,
-                origin: Some(filename),
-                fold: true,
-                annotations: vec![marker],
-            }],
-            opt: FormatOptions {
-                color: true,
-                ..Default::default()
-            },
-        };
-        let list = DisplayList::from(snippet);
-        list.to_string()
+        let report = &[Level::ERROR.primary_title(err_type).element(
+            Snippet::source(source)
+                .line_start(1)
+                .path(filename)
+                .fold(true)
+                .annotation(AnnotationKind::Primary.span(start..end).label(reason)),
+        )];
+        Renderer::styled().render(report)
     }
 }
 

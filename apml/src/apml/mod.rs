@@ -27,25 +27,28 @@ pub type Context = HashMap<String, Value>;
 /// Parse a `spec` / `defines` file and apply its variable assignments to
 /// `context`.
 ///
-/// Command substitutions (`$( ... )`) are rejected.
+/// Command substitutions (`$( ... )`) are **never executed**: they expand to
+/// an empty string, like an undefined variable. This keeps the parser safe
+/// to run on untrusted files. If you explicitly need real command output,
+/// use [`parse_with_runner`] (at your own risk).
 pub fn parse(c: &str, context: &mut Context) -> Result<(), Vec<ParseError>> {
-    parse_with_runner(
-        c,
-        context,
-        &mut |_stages: &[Vec<String>]| -> Result<String, ParseErrorInfo> {
-            Err(ParseErrorInfo::SubstitutionError(
-                "Command substitution is not allowed.".to_string(),
-                "$(".to_string(),
-            ))
-        },
-    )
+    parse_with_runner(c, context, &mut |_stages: &[Vec<String>]| {
+        Ok(String::new())
+    })
 }
 
 /// Parse a `spec` / `defines` file and apply its variable assignments to
 /// `context`, using `runner` to evaluate `$( ... )` command substitutions.
 ///
-/// The runner receives the expanded command words and must return the
-/// command's standard output (trailing newline stripped), or an error.
+/// # Security
+///
+/// The runner **executes arbitrary commands** found in the file. Only use
+/// this on files you trust, with a runner that sandboxes or restricts
+/// execution; the default [`parse`] never executes anything.
+///
+/// The runner receives the expanded pipeline (each stage is a list of
+/// command words) and must return the command's standard output (trailing
+/// newline stripped), or an error.
 pub fn parse_with_runner(
     c: &str,
     context: &mut Context,
