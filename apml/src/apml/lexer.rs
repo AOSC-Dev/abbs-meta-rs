@@ -267,7 +267,7 @@ impl<'a> Lexer<'a> {
                 }
                 _ => {
                     let s = self.scan_literal_run(paren_mode);
-                    push_literal(&mut fields, &s);
+                    push_literal(&mut fields, s);
                 }
             }
         }
@@ -352,14 +352,13 @@ impl<'a> Lexer<'a> {
                             self.bump();
                         }
                         Some('"') | Some('\\') | Some('$') | Some('`') => {
-                            let c = self.bump().unwrap();
-                            push_literal(&mut fields, &c.to_string());
+                            push_literal_char(&mut fields, self.bump().unwrap());
                         }
                         Some(_) => {
-                            push_literal(&mut fields, "\\");
-                            push_literal(&mut fields, &self.bump().unwrap().to_string());
+                            push_literal_char(&mut fields, '\\');
+                            push_literal_char(&mut fields, self.bump().unwrap());
                         }
-                        None => push_literal(&mut fields, "\\"),
+                        None => push_literal_char(&mut fields, '\\'),
                     }
                 }
                 '$' => {
@@ -368,14 +367,14 @@ impl<'a> Lexer<'a> {
                 }
                 _ => {
                     let s = self.scan_dq_literal_run();
-                    push_literal(&mut fields, &s);
+                    push_literal(&mut fields, s);
                 }
             }
         }
     }
 
-    fn scan_literal_run(&mut self, paren_mode: bool) -> String {
-        let mut s = String::new();
+    fn scan_literal_run(&mut self, paren_mode: bool) -> &'a str {
+        let start = self.byte;
         loop {
             let c = match self.peek() {
                 None => break,
@@ -385,24 +384,24 @@ impl<'a> Lexer<'a> {
                 ' ' | '\t' | '\r' | '\n' | '\'' | '"' | '\\' | '$' | ';' => break,
                 '(' | ')' if paren_mode => break,
                 _ => {
-                    s.push(self.bump().unwrap());
+                    self.bump();
                 }
             }
         }
-        s
+        &self.src[start..self.byte]
     }
 
-    fn scan_dq_literal_run(&mut self) -> String {
-        let mut s = String::new();
+    fn scan_dq_literal_run(&mut self) -> &'a str {
+        let start = self.byte;
         loop {
             match self.peek() {
                 Some('"') | Some('\\') | Some('$') | None => break,
                 Some(_) => {
-                    s.push(self.bump().unwrap());
+                    self.bump();
                 }
             }
         }
-        s
+        &self.src[start..self.byte]
     }
 
     /// Scan a `$`-introduced expansion. Assumes positioned at `$`.
@@ -414,10 +413,10 @@ impl<'a> Lexer<'a> {
                 if self.peek() == Some('(') {
                     self.bump(); // (
                     let content = self.scan_subst_raw(true)?;
-                    Ok(Field::Arith(content))
+                    Ok(Field::Arith(content.to_string()))
                 } else {
                     let content = self.scan_subst_raw(false)?;
-                    let cmds = parse_command_content(&content)?;
+                    let cmds = parse_command_content(content)?;
                     Ok(Field::Command(cmds))
                 }
             }
@@ -454,15 +453,15 @@ impl<'a> Lexer<'a> {
                 Ok(Field::Param(Param::Special('!')))
             }
             Some(c) if c.is_ascii_digit() => {
-                let mut s = String::new();
+                let start = self.byte;
                 while let Some(c) = self.peek() {
                     if c.is_ascii_digit() {
-                        s.push(self.bump().unwrap());
+                        self.bump();
                     } else {
                         break;
                     }
                 }
-                let n: u32 = s.parse().unwrap_or(0);
+                let n: u32 = self.src[start..self.byte].parse().unwrap_or(0);
                 Ok(Field::Param(Param::Positional(n)))
             }
             Some(c) if c.is_ascii_alphabetic() || c == '_' => {
@@ -500,7 +499,7 @@ impl<'a> Lexer<'a> {
     ///
     /// Assumes positioned at the first content character (the opening
     /// parens have been consumed). `is_arith` selects the `))` terminator.
-    fn scan_subst_raw(&mut self, is_arith: bool) -> Result<String, ParseErrorInfo> {
+    fn scan_subst_raw(&mut self, is_arith: bool) -> Result<&'a str, ParseErrorInfo> {
         let start = self.byte;
         let mut depth: usize = 1;
         loop {
@@ -542,13 +541,13 @@ impl<'a> Lexer<'a> {
                 }
                 ')' => {
                     if is_arith && depth == 1 && self.peek2() == Some(')') {
-                        let content = self.src[start..self.byte].to_string();
+                        let content = &self.src[start..self.byte];
                         self.bump();
                         self.bump();
                         return Ok(content);
                     }
                     if depth == 1 {
-                        let content = self.src[start..self.byte].to_string();
+                        let content = &self.src[start..self.byte];
                         self.bump();
                         return Ok(content);
                     }
@@ -694,6 +693,16 @@ fn push_literal(fields: &mut Vec<Field>, s: &str) {
     }
 }
 
+/// Append a single char to the last literal field (or start a new one),
+/// without allocating an intermediate `String`.
+fn push_literal_char(fields: &mut Vec<Field>, c: char) {
+    if let Some(Field::Literal(last)) = fields.last_mut() {
+        last.push(c);
+    } else {
+        fields.push(Field::Literal(c.to_string()));
+    }
+}
+
 /// Parse the inner content of a `${ ... }` expansion into a [`Param`].
 fn parse_braced_content(content: &str) -> Result<Param, ParseErrorInfo> {
     // `${#name}` / `${#name[@]}` — length.
@@ -726,11 +735,8 @@ fn parse_braced_content(content: &str) -> Result<Param, ParseErrorInfo> {
     }
 
     // `${name[=:-?+]#...}` — a substitution applied to a subscripted value.
-    let subst = |name: String, index: Option<Index>, op: BracedOp| Param::Braced {
-        name,
-        index,
-        op,
-    };
+    let subst =
+        |name: String, index: Option<Index>, op: BracedOp| Param::Braced { name, index, op };
 
     let op = if let Some(r) = rest.strip_prefix(":-") {
         BracedOp::Default {
@@ -876,11 +882,7 @@ fn split_name_index(s: &str) -> Option<(String, Option<Index>, &str)> {
 }
 
 /// Parse a `${name/pat/rep}`-style replacement operand.
-fn parse_replace(
-    r: &str,
-    all: bool,
-    anchor: ReplaceAnchor,
-) -> Result<BracedOp, ParseErrorInfo> {
+fn parse_replace(r: &str, all: bool, anchor: ReplaceAnchor) -> Result<BracedOp, ParseErrorInfo> {
     match find_top_level_sep(r, &['/']) {
         Some(idx) => Ok(BracedOp::Replace {
             all,
@@ -1072,16 +1074,16 @@ impl<'a> Lexer<'a> {
                     fields.push(f);
                 }
                 _ => {
-                    let mut s = String::new();
+                    let start = self.byte;
                     while let Some(c) = self.peek() {
                         match c {
                             '\'' | '"' | '\\' | '$' => break,
                             _ => {
-                                s.push(self.bump().unwrap());
+                                self.bump();
                             }
                         }
                     }
-                    push_literal(&mut fields, &s);
+                    push_literal(&mut fields, &self.src[start..self.byte]);
                 }
             }
         }

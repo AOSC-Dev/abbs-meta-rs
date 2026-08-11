@@ -1,6 +1,7 @@
 use super::{ast::ReplaceAnchor, error::ParseErrorInfo, glob::get_regex_string_from_glob};
 
 use regex::Regex;
+use std::borrow::Cow;
 use std::cmp;
 
 /// Substring in bash subsitution.
@@ -50,25 +51,21 @@ fn parse_number(s: &str) -> Result<isize, ParseErrorInfo> {
     let left_bracket_count = s.chars().filter(|c| c == &'(').count();
     let right_bracket_count = s.chars().filter(|c| c == &')').count();
 
-    let mut s = s.to_string();
-    if left_bracket_count == 1 && right_bracket_count == 1 {
-        s = s.chars().filter(|c| c != &'(' && c != &')').collect();
+    // Strip a balanced pair of parentheses without allocating in the common
+    // no-parenthesis case.
+    let num_str: Cow<'_, str> = if left_bracket_count == 1 && right_bracket_count == 1 {
+        Cow::Owned(s.chars().filter(|c| c != &'(' && c != &')').collect())
     } else if left_bracket_count != 0 || right_bracket_count != 0 {
         return Err(ParseErrorInfo::InvalidSyntax(
             "Bad parentheses in number.".to_string(),
         ));
-    }
-
-    let res: isize = match s.parse() {
-        Ok(r) => r,
-        Err(_e) => {
-            return Err(ParseErrorInfo::InvalidSyntax(
-                "Bad number in substitution.".to_string(),
-            ));
-        }
+    } else {
+        Cow::Borrowed(s)
     };
 
-    Ok(res)
+    num_str
+        .parse()
+        .map_err(|_| ParseErrorInfo::InvalidSyntax("Bad number in substitution.".to_string()))
 }
 
 /// Replace occurrences of `pattern` (a glob) in `origin` with `replacement`.
@@ -95,7 +92,8 @@ pub fn get_replace(
     } else {
         re.replace(origin, replacement)
     };
-    Ok(result.to_string())
+    // `into_owned` moves when the replacement produced an owned string.
+    Ok(result.into_owned())
 }
 
 /// Returns the string with prefix or suffix removed according to the given pattern.
@@ -170,11 +168,11 @@ pub fn get_lower_case(
     if all {
         Ok(re
             .replace_all(origin, |caps: &regex::Captures| caps[0].to_lowercase())
-            .to_string())
+            .into_owned())
     } else {
         Ok(re
             .replace(origin, |caps: &regex::Captures| caps[0].to_lowercase())
-            .to_string())
+            .into_owned())
     }
 }
 
@@ -195,11 +193,11 @@ pub fn get_upper_case(
     if all {
         Ok(re
             .replace_all(origin, |caps: &regex::Captures| caps[0].to_uppercase())
-            .to_string())
+            .into_owned())
     } else {
         Ok(re
             .replace(origin, |caps: &regex::Captures| caps[0].to_uppercase())
-            .to_string())
+            .into_owned())
     }
 }
 

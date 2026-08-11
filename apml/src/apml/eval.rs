@@ -8,6 +8,7 @@ use super::ast::*;
 use super::error::{Diagnostic, DiagnosticInfo, ParseErrorInfo};
 use super::substitution;
 use super::value::Value;
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 /// The variable context: name -> value.
@@ -130,14 +131,21 @@ fn eval_fields_scalar(
             Field::Literal(s) => out.push_str(s),
             Field::Escaped(c) => out.push(*c),
             Field::SingleQuoted(s) => out.push_str(s),
-            Field::DoubleQuoted(fs) => {
-                out.push_str(&eval_fields_scalar(
-                    fs, span, ctx, runner, warnings, warn_skipped_command,
-                )?)
-            }
-            Field::Param(p) => {
-                out.push_str(&eval_param_scalar(p, ctx, runner, warnings, warn_skipped_command)?)
-            }
+            Field::DoubleQuoted(fs) => out.push_str(&eval_fields_scalar(
+                fs,
+                span,
+                ctx,
+                runner,
+                warnings,
+                warn_skipped_command,
+            )?),
+            Field::Param(p) => out.push_str(&eval_param_scalar(
+                p,
+                ctx,
+                runner,
+                warnings,
+                warn_skipped_command,
+            )?),
             Field::Command(cmds) => {
                 let mut output = String::new();
                 for cmd in cmds {
@@ -196,7 +204,7 @@ fn eval_array_word(
     for f in &w.fields {
         match f {
             Field::Literal(s) | Field::SingleQuoted(s) => append_or_push(&mut values, s),
-            Field::Escaped(c) => append_or_push(&mut values, &c.to_string()),
+            Field::Escaped(c) => append_char(&mut values, *c),
             Field::DoubleQuoted(fs) => {
                 // `"${arr[@]}"` / `"${arr[@]<op>...}"` / `"$@"` alone →
                 // one value per array element.
@@ -207,14 +215,22 @@ fn eval_array_word(
                         op,
                     }) = &fs[0]
                     {
-                        return apply_array_op(name, op, ctx, runner, warnings, warn_skipped_command);
+                        return apply_array_op(
+                            name,
+                            op,
+                            ctx,
+                            runner,
+                            warnings,
+                            warn_skipped_command,
+                        );
                     }
                     if let Field::Param(Param::Special('@')) = &fs[0] {
                         return Ok(Vec::new());
                     }
                 }
                 // Inside double quotes: no word splitting.
-                let s = eval_fields_scalar(fs, w.span, ctx, runner, warnings, warn_skipped_command)?;
+                let s =
+                    eval_fields_scalar(fs, w.span, ctx, runner, warnings, warn_skipped_command)?;
                 append_or_push(&mut values, &s);
             }
             Field::Param(p) => {
@@ -227,7 +243,9 @@ fn eval_array_word(
                     } = p
                     {
                         let mut out = Vec::new();
-                        for e in apply_array_op(name, op, ctx, runner, warnings, warn_skipped_command)? {
+                        for e in
+                            apply_array_op(name, op, ctx, runner, warnings, warn_skipped_command)?
+                        {
                             out.extend(ifs_split(&e));
                         }
                         return Ok(out);
@@ -269,16 +287,23 @@ fn apply_array_op(
     }
     let mut out = Vec::new();
     for e in elems {
-        out.push(eval_braced_with_origin(
-            name,
-            &e,
-            true,
-            op,
-            ctx,
-            runner,
-            warnings,
-            warn_skipped_command,
-        )?);
+        // Fast paths move the element (or produce empty) with no allocation;
+        // only the computed ops need the full evaluator.
+        match braced_fast(op, true, e.is_empty()) {
+            BracedFast::SelfOrigin => out.push(e),
+            BracedFast::Empty => out.push(String::new()),
+            BracedFast::Computed => {
+                out.push(eval_braced_with_origin(
+                    name,
+                    &e,
+                    op,
+                    ctx,
+                    runner,
+                    warnings,
+                    warn_skipped_command,
+                )?);
+            }
+        }
     }
     Ok(out)
 }
@@ -288,6 +313,16 @@ fn append_or_push(values: &mut Vec<String>, s: &str) {
         values.push(String::new());
     }
     values.last_mut().unwrap().push_str(s);
+}
+
+/// Append a single char to the last element (or a new one), without
+/// allocating an intermediate `String`.
+fn append_char(values: &mut Vec<String>, c: char) {
+    if values.is_empty() {
+        values.push(c.to_string());
+    } else {
+        values.last_mut().unwrap().push(c);
+    }
 }
 
 fn split_append(values: &mut Vec<String>, s: &str) {
@@ -315,19 +350,24 @@ fn ifs_split(s: &str) -> Vec<String> {
         .collect()
 }
 
-fn eval_param_scalar(
+fn eval_param_scalar<'a>(
     p: &Param,
-    ctx: &mut Context,
+    ctx: &'a mut Context,
     runner: &mut Runner,
     warnings: &mut Vec<Diagnostic>,
     warn_skipped_command: bool,
-) -> Result<String, ParseErrorInfo> {
+) -> Result<Cow<'a, str>, ParseErrorInfo> {
     match p {
         Param::Plain(name) => Ok(param_value(name, None, ctx)),
-        Param::Special(_) | Param::Positional(_) => Ok(String::new()),
+        Param::Special(_) | Param::Positional(_) => Ok(Cow::Borrowed("")),
         Param::Length { name, index } => match index {
-            Some(Index::At) | Some(Index::Star) => Ok(format!("{}", array_elems(name, ctx).len())),
-            _ => Ok(format!("{}", param_value(name, None, ctx).chars().count())),
+            Some(Index::At) | Some(Index::Star) => {
+                Ok(Cow::Owned(format!("{}", array_elems(name, ctx).len())))
+            }
+            _ => Ok(Cow::Owned(format!(
+                "{}",
+                param_value(name, None, ctx).chars().count()
+            ))),
         },
         Param::Braced { name, index, op } => {
             eval_braced(name, index, op, ctx, runner, warnings, warn_skipped_command)
@@ -337,48 +377,107 @@ fn eval_param_scalar(
 
 /// The value of a parameter; undefined variables expand to an empty string
 /// (Bash semantics). Referencing an array without a subscript yields its
-/// first element.
-fn param_value(name: &str, index: Option<&Index>, ctx: &Context) -> String {
+/// first element. Borrows the stored value when possible instead of
+/// allocating a copy.
+fn param_value<'a>(name: &str, index: Option<&Index>, ctx: &'a Context) -> Cow<'a, str> {
     match ctx.get(name) {
-        None => String::new(),
-        Some(Value::Scalar(s)) => s.clone(),
+        None => Cow::Borrowed(""),
+        Some(Value::Scalar(s)) => Cow::Borrowed(s.as_str()),
         Some(Value::Array(a)) => match index {
-            None | Some(Index::Number(0)) => a.first().cloned().unwrap_or_default(),
-            Some(Index::Number(i)) => a.get(*i).cloned().unwrap_or_default(),
-            Some(Index::At) | Some(Index::Star) => a.join(" "),
+            None | Some(Index::Number(0)) => Cow::Borrowed(a.first().map_or("", String::as_str)),
+            Some(Index::Number(i)) => Cow::Borrowed(a.get(*i).map_or("", String::as_str)),
+            Some(Index::At) | Some(Index::Star) => Cow::Owned(a.join(" ")),
         },
     }
 }
 
-fn eval_braced(
+/// The outcome of a braced operation when only the origin and its state are
+/// consulted — used to short-circuit with zero copying.
+enum BracedFast {
+    /// The result is the origin value itself.
+    SelfOrigin,
+    /// The result is the empty string.
+    Empty,
+    /// The result needs word evaluation and/or context mutation.
+    Computed,
+}
+
+/// Decide what a `${...}` does with its origin without touching the context.
+fn braced_fast(op: &BracedOp, is_set: bool, origin_empty: bool) -> BracedFast {
+    match op {
+        BracedOp::Value => BracedFast::SelfOrigin,
+        BracedOp::Default { colon, .. } => {
+            let use_self = if *colon { is_set && !origin_empty } else { is_set };
+            if use_self {
+                BracedFast::SelfOrigin
+            } else {
+                BracedFast::Computed
+            }
+        }
+        BracedOp::Alternative { colon, .. } => {
+            let use_alt = if *colon { is_set && !origin_empty } else { is_set };
+            if use_alt {
+                BracedFast::Computed
+            } else {
+                BracedFast::Empty
+            }
+        }
+        BracedOp::Error { colon, .. } => {
+            let is_err = if *colon { !is_set || origin_empty } else { !is_set };
+            if is_err {
+                BracedFast::Computed
+            } else {
+                BracedFast::SelfOrigin
+            }
+        }
+        BracedOp::Assign { colon, .. } => {
+            let need_assign = if *colon { !is_set || origin_empty } else { !is_set };
+            if need_assign {
+                BracedFast::Computed
+            } else {
+                BracedFast::SelfOrigin
+            }
+        }
+        _ => BracedFast::Computed,
+    }
+}
+
+fn eval_braced<'a>(
     name: &str,
     index: &Option<Index>,
     op: &BracedOp,
-    ctx: &mut Context,
+    ctx: &'a mut Context,
     runner: &mut Runner,
     warnings: &mut Vec<Diagnostic>,
     warn_skipped_command: bool,
-) -> Result<String, ParseErrorInfo> {
-    let origin = param_value(name, index.as_ref(), ctx);
+) -> Result<Cow<'a, str>, ParseErrorInfo> {
     let is_set = ctx.contains_key(name);
-    eval_braced_with_origin(
-        name,
-        &origin,
-        is_set,
-        op,
-        ctx,
-        runner,
-        warnings,
-        warn_skipped_command,
-    )
+
+    // Decide with a short-lived borrow so `ctx` is free again afterwards.
+    let fast = {
+        let origin = param_value(name, index.as_ref(), ctx);
+        braced_fast(op, is_set, origin.is_empty())
+    };
+
+    match fast {
+        // Zero-copy: the result is the origin itself — borrow it fresh.
+        BracedFast::SelfOrigin => Ok(param_value(name, index.as_ref(), ctx)),
+        BracedFast::Empty => Ok(Cow::Borrowed("")),
+        // Needs word evaluation / context mutation: `origin` must be owned.
+        BracedFast::Computed => {
+            let origin = param_value(name, index.as_ref(), ctx).into_owned();
+            eval_braced_with_origin(name, &origin, op, ctx, runner, warnings, warn_skipped_command)
+                .map(Cow::Owned)
+        }
+    }
 }
 
-/// Apply a braced operation to a single origin string (used both for scalar
-/// parameters and, via [`apply_array_op`], for each array element).
+/// Apply a braced operation that needs word evaluation and/or context
+/// mutation. Ops whose result is the origin itself (or empty) are handled by
+/// [`braced_fast`] at the call sites and never reach here.
 fn eval_braced_with_origin(
     name: &str,
     origin: &str,
-    is_set: bool,
     op: &BracedOp,
     ctx: &mut Context,
     runner: &mut Runner,
@@ -386,60 +485,24 @@ fn eval_braced_with_origin(
     warn_skipped_command: bool,
 ) -> Result<String, ParseErrorInfo> {
     match op {
-        BracedOp::Value => Ok(origin.to_string()),
-        BracedOp::Default { colon, word } => {
-            let use_self = if *colon {
-                is_set && !origin.is_empty()
-            } else {
-                is_set
-            };
-            if use_self {
-                Ok(origin.to_string())
-            } else {
-                eval_scalar_word(word, ctx, runner, warnings, warn_skipped_command)
-            }
+        BracedOp::Value => unreachable!("Value is short-circuited by braced_fast"),
+        BracedOp::Default { word, .. } => {
+            eval_scalar_word(word, ctx, runner, warnings, warn_skipped_command)
         }
-        BracedOp::Alternative { colon, word } => {
-            let use_alt = if *colon {
-                is_set && !origin.is_empty()
-            } else {
-                is_set
-            };
-            if use_alt {
-                eval_scalar_word(word, ctx, runner, warnings, warn_skipped_command)
-            } else {
-                Ok(String::new())
-            }
+        BracedOp::Alternative { word, .. } => {
+            eval_scalar_word(word, ctx, runner, warnings, warn_skipped_command)
         }
-        BracedOp::Error { colon, word } => {
-            let is_err = if *colon {
-                !is_set || origin.is_empty()
-            } else {
-                !is_set
-            };
-            if is_err {
-                let msg = eval_scalar_word(word, ctx, runner, warnings, warn_skipped_command)?;
-                Err(ParseErrorInfo::SubstitutionError(
-                    format!("{} undefined: {}", name, msg),
-                    name.to_string(),
-                ))
-            } else {
-                Ok(origin.to_string())
-            }
+        BracedOp::Error { word, .. } => {
+            let msg = eval_scalar_word(word, ctx, runner, warnings, warn_skipped_command)?;
+            Err(ParseErrorInfo::SubstitutionError(
+                format!("{} undefined: {}", name, msg),
+                name.to_string(),
+            ))
         }
-        BracedOp::Assign { colon, word } => {
-            let need_assign = if *colon {
-                !is_set || origin.is_empty()
-            } else {
-                !is_set
-            };
-            if need_assign {
-                let val = eval_scalar_word(word, ctx, runner, warnings, warn_skipped_command)?;
-                ctx.insert(name.to_string(), Value::Scalar(val.clone()));
-                Ok(val)
-            } else {
-                Ok(origin.to_string())
-            }
+        BracedOp::Assign { word, .. } => {
+            let val = eval_scalar_word(word, ctx, runner, warnings, warn_skipped_command)?;
+            ctx.insert(name.to_string(), Value::Scalar(val.clone()));
+            Ok(val)
         }
         BracedOp::Substring(word) => {
             let cmd = eval_scalar_word(word, ctx, runner, warnings, warn_skipped_command)?;
@@ -475,7 +538,13 @@ fn eval_braced_with_origin(
             let pat = if word.fields.is_empty() {
                 None
             } else {
-                Some(eval_scalar_word(word, ctx, runner, warnings, warn_skipped_command)?)
+                Some(eval_scalar_word(
+                    word,
+                    ctx,
+                    runner,
+                    warnings,
+                    warn_skipped_command,
+                )?)
             };
             match kind {
                 CaseKind::UpperOnce => substitution::get_upper_case(origin, pat.as_deref(), false),
