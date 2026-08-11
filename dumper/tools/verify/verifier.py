@@ -5,25 +5,40 @@ import sys
 def compare_dumps(spec: bool) -> bool:
     print(f'Finding differences in `{"spec" if spec else "defines"}` ...')
     diffs = 0
-    with open(f'/tmp/all_vars{"" if spec else "_def"}.json', 'rt') as f:
+    ref_path = '/tmp/all_vars.json' if spec else '/tmp/all_vars_def.json'
+    rs_path = '/tmp/all_vars_rs.json' if spec else '/tmp/all_vars_def_rs.json'
+    with open(ref_path, 'rt') as f:
         reference = json.load(f)
-    with open(f'/tmp/all_vars{"" if spec else "_def"}_rs.json', 'rt') as f:
+    with open(rs_path, 'rt') as f:
         rs = json.load(f)
+
     for k, v in rs.items():
-        ref = reference.get(k)
-        if not ref:
-            print(f'{k}: Missing from reference')
-        if v != ref:
-            print(
-                f'{k}: Different from reference:\n------------------------\nRef: {ref}\n===\nNew: {v}\n------------------------')
+        if k not in reference:
+            print(f'{k}: Present in Rust dump but missing from reference')
             diffs += 1
+        elif reference[k] != v:
+            print(
+                f'{k}: Different from reference:\n'
+                f'------------------------\n'
+                f'Ref: {json.dumps(reference[k], ensure_ascii=False)}\n'
+                f'===\n'
+                f'New: {json.dumps(v, ensure_ascii=False)}\n'
+                f'------------------------')
+            diffs += 1
+    for k in reference:
+        if k not in rs:
+            print(f'{k}: Present in reference but missing from Rust dump')
+            diffs += 1
+
     print(f'Found {diffs} differences between implementations')
     return diffs > 0
 
 
 if __name__ == "__main__":
+    fail = False
     if compare_dumps(True):
         print('Stopped. Please fix these issues first.')
-        sys.exit(1)
+        fail = True
     if compare_dumps(False):
-        sys.exit(1)
+        fail = True
+    sys.exit(1 if fail else 0)
