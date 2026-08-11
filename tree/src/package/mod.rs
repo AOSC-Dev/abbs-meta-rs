@@ -86,8 +86,10 @@ impl Package {
             }
         }
 
-	let pkg_section = check_pkgsec(&name.as_str(),
-		get_scalar(context, "PKGSEC").unwrap_or("").to_owned())?;
+        let pkg_section = check_pkgsec(
+            name.as_str(),
+            get_scalar(context, "PKGSEC").unwrap_or("").to_owned(),
+        )?;
 
         // Get important fields
         let res = Package {
@@ -144,7 +146,7 @@ impl Package {
                     error: PackageErrorType::FieldSyntaxError("DIRECTORY".to_string()),
                 };
                 let mut spec_path = spec_path.to_path_buf();
-                spec_path.pop().then(|| ()).ok_or_else(|| err.clone())?;
+                spec_path.pop().then_some(()).ok_or_else(|| err.clone())?;
                 let directory = spec_path
                     .file_name()
                     .ok_or_else(|| err.clone())?
@@ -208,7 +210,7 @@ fn split_by_relop(s: &str) -> (String, Option<String>, Option<String>) {
         .or_else(|| f("=="))
         .or_else(|| f("<"))
         .or_else(|| f(">"))
-        .map_or_else(|| (s.to_string(), None, None), |v| v)
+        .unwrap_or_else(|| (s.to_string(), None, None))
 }
 
 fn get_items_from_bash_string(s: &str) -> Vec<String> {
