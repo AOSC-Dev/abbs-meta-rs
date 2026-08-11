@@ -1,10 +1,12 @@
-/// variables.rs - Known variables to skip the undefined variable error.
-
-/// Known variables during the execution of autobuild.
+/// variables.rs - Variables that are provided by autobuild at runtime.
 ///
-/// Undefined variable errors should be ignored for these variables.
+/// These variables are not defined by `spec` / `defines` files themselves but
+/// are injected by the autobuild framework before the files are sourced.
 ///
-/// Part of this collection is extracted from [`autobuild4/lib/default-paths.sh`](file:///usr/lib/autobuild4/lib/default-paths.sh)
+/// Since undefined variables expand to an empty string (Bash semantics), the
+/// parser no longer needs this list to suppress errors. It is retained for
+/// diagnostics and documentation purposes only.
+#[allow(dead_code)]
 const KNOWN_VARIABLES: &[&str] = &[
 	// Standard variables
 	"PWD",
@@ -76,6 +78,7 @@ const KNOWN_VARIABLES: &[&str] = &[
 ];
 
 /// Returns `true` if the given string is in the known variables list.
+#[allow(dead_code)]
 pub fn is_known_variable(v: &str) -> bool {
 	KNOWN_VARIABLES.contains(&v)
 }

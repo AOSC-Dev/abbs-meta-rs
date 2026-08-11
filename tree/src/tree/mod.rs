@@ -2,7 +2,7 @@ pub mod error;
 use error::TreeError;
 
 use super::package::Package;
-use abbs_meta_apml::parse;
+use abbs_meta_apml::{parse, Context};
 
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fs, path::Path};
@@ -94,7 +94,7 @@ impl Tree {
     }
 }
 
-fn spec_decorator(c: &mut HashMap<String, String>) {
+fn spec_decorator(c: &mut Context) {
     if let Some(ver) = c.remove("VER") {
         c.insert("PKGVER".to_string(), ver);
     }

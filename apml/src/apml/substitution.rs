@@ -1,4 +1,4 @@
-use super::{error::ParseErrorInfo, glob::get_regex_string_from_glob};
+use super::{ast::ReplaceAnchor, error::ParseErrorInfo, glob::get_regex_string_from_glob};
 
 use regex::Regex;
 use std::cmp;
@@ -71,41 +71,30 @@ fn parse_number(s: &str) -> Result<isize, ParseErrorInfo> {
     Ok(res)
 }
 
-fn get_chars_without_escape(c: &char, s: &str) -> usize {
-    let mut result = 0;
-    let mut prev_char = '\0';
-
-    for i in s.chars() {
-        if prev_char != '\\' && &i == c {
-            result += 1;
-        }
-        prev_char = i;
+/// Replace occurrences of `pattern` (a glob) in `origin` with `replacement`.
+///
+/// `all` selects `${name/pat/rep}` (once) vs `${name//pat/rep}` (all).
+/// `anchor` implements the `${name/#pat/rep}` (prefix) and `${name/%pat/rep}`
+/// (suffix) forms.
+pub fn get_replace(
+    origin: &str,
+    pattern: &str,
+    replacement: &str,
+    all: bool,
+    anchor: ReplaceAnchor,
+) -> Result<String, ParseErrorInfo> {
+    let mut re = get_regex_string_from_glob(pattern)?;
+    match anchor {
+        ReplaceAnchor::Any => {}
+        ReplaceAnchor::Prefix => re = format!("^(?:{})", re),
+        ReplaceAnchor::Suffix => re = format!("(?:{})$", re),
     }
-
-    result
-}
-
-pub fn get_replace(origin: &str, command: &str, all: bool) -> Result<String, ParseErrorInfo> {
-    let (from, to) = match get_chars_without_escape(&'/', command) {
-        1 => {
-            let commands: Vec<&str> = command.split('/').collect();
-            (commands[0].to_string(), commands[1].to_string())
-        }
-        _ => {
-            return Err(ParseErrorInfo::SubstitutionError(
-                "Invalid replace command.".to_string(),
-                command.to_string(),
-            ));
-        }
-    };
-
-    let re = Regex::new(&get_regex_string_from_glob(&from)?)?;
+    let re = Regex::new(&re)?;
     let result = if all {
-        re.replace_all(origin, to.as_str())
+        re.replace_all(origin, replacement)
     } else {
-        re.replace(origin, to.as_str())
+        re.replace(origin, replacement)
     };
-
     Ok(result.to_string())
 }
 
@@ -177,17 +166,16 @@ pub fn get_lower_case(
         }
     }
 
-    let pattern = get_regex_string_from_glob(pattern.unwrap())?;
-    let matcher = Regex::new(&pattern)?;
-    let mut output = String::new();
-    for c in pattern.chars() {
-        if matcher.is_match(&c.to_string()) {
-            output += &c.to_lowercase().to_string();
-            continue;
-        }
-        output += &c.to_string();
+    let re = Regex::new(&get_regex_string_from_glob(pattern.unwrap())?)?;
+    if all {
+        Ok(re
+            .replace_all(origin, |caps: &regex::Captures| caps[0].to_lowercase())
+            .to_string())
+    } else {
+        Ok(re
+            .replace(origin, |caps: &regex::Captures| caps[0].to_lowercase())
+            .to_string())
     }
-    Ok(output)
 }
 
 pub fn get_upper_case(
@@ -203,17 +191,16 @@ pub fn get_upper_case(
         }
     }
 
-    let pattern = get_regex_string_from_glob(pattern.unwrap())?;
-    let matcher = Regex::new(&pattern)?;
-    let mut output = String::new();
-    for c in pattern.chars() {
-        if matcher.is_match(&c.to_string()) {
-            output += &c.to_uppercase().to_string();
-            continue;
-        }
-        output += &c.to_string();
+    let re = Regex::new(&get_regex_string_from_glob(pattern.unwrap())?)?;
+    if all {
+        Ok(re
+            .replace_all(origin, |caps: &regex::Captures| caps[0].to_uppercase())
+            .to_string())
+    } else {
+        Ok(re
+            .replace(origin, |caps: &regex::Captures| caps[0].to_uppercase())
+            .to_string())
     }
-    Ok(output)
 }
 
 #[cfg(test)]

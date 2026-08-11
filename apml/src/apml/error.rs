@@ -1,4 +1,3 @@
-use aho_corasick::{AhoCorasickBuilder, MatchKind};
 use annotate_snippets::{
     display_list::{DisplayList, FormatOptions},
     snippet::{Annotation, AnnotationType, Slice, Snippet, SourceAnnotation},
@@ -25,71 +24,34 @@ pub enum ParseErrorInfo {
     RegexError(String),
 }
 
-#[inline]
-fn locate_keyword(
-    source: &str,
-    keyword: &str,
-    start: usize,
-    end: usize,
-    bare: bool,
-) -> Option<(usize, usize)> {
-    let mut search = AhoCorasickBuilder::new();
-    let searcher = if !bare {
-        search.match_kind(MatchKind::LeftmostLongest).build(&[
-            format!("${{{}", keyword).as_str(),
-            format!("${}", keyword).as_str(),
-            "$(",
-        ])
-    } else {
-        search.build(&[keyword])
-    }
-    .ok()?;
-
-    if start > end {
-        return None;
-    }
-    let range = searcher.find(&source.as_bytes()[start..end]);
-    if let Some(range) = range {
-        return Some((range.start(), range.end()));
-    }
-
-    None
-}
-
 impl ParseError {
     pub fn pretty_print(&self, source: &str, filename: &str) -> String {
-        let mut bare_search = false;
-        let (err_type, reason, keyword) = match &self.error {
-            ParseErrorInfo::InvalidSyntax(r) => ("Invalid syntax", r, None),
-            ParseErrorInfo::ContextError(r, kw) => ("Context error", r, Some(kw)),
-            ParseErrorInfo::SubstitutionError(r, kw) => ("Substitution error", r, Some(kw)),
-            ParseErrorInfo::GlobError(r) => ("Glob translation error", r, None),
-            ParseErrorInfo::RegexError(r) => ("Regex error", r, None),
-            ParseErrorInfo::LexerError(r) => ("Invalid or unsupported syntax", r, None),
-            ParseErrorInfo::RestrictedSyntax(r, kw) => {
-                bare_search = true;
-                ("Restricted syntax", r, Some(kw))
-            }
+        let (err_type, reason) = match &self.error {
+            ParseErrorInfo::InvalidSyntax(r) => ("Invalid syntax", r.as_str()),
+            ParseErrorInfo::ContextError(r, _) => ("Context error", r.as_str()),
+            ParseErrorInfo::SubstitutionError(r, _) => ("Substitution error", r.as_str()),
+            ParseErrorInfo::GlobError(r) => ("Glob translation error", r.as_str()),
+            ParseErrorInfo::RegexError(r) => ("Regex error", r.as_str()),
+            ParseErrorInfo::LexerError(r) => ("Invalid or unsupported syntax", r.as_str()),
+            ParseErrorInfo::RestrictedSyntax(r, _) => ("Restricted syntax", r.as_str()),
         };
-        let mut start_marker = self.prev_byte;
-        let mut end_marker = self.byte;
-        if let Some(keyword) = keyword {
-            if let Some((start, end)) =
-                locate_keyword(source, keyword, start_marker, end_marker, bare_search)
-            {
-                end_marker = start_marker + end;
-                start_marker += start;
-            }
+
+        let len = source.len();
+        // Clamp the marker range to the source bounds to avoid panicking in
+        // the snippet renderer on bad positions.
+        let mut start = self.prev_byte.min(len);
+        let mut end = self.byte.min(len);
+        if start > end {
+            std::mem::swap(&mut start, &mut end);
+        }
+        if start == end && start < len {
+            end += 1;
         }
 
-        if let ParseErrorInfo::LexerError(_) = &self.error {
-            start_marker = self.byte - 1;
-            end_marker = self.byte;
-        }
         let marker = SourceAnnotation {
             label: reason,
             annotation_type: AnnotationType::Error,
-            range: (start_marker, end_marker),
+            range: (start, end),
         };
         let title = Annotation {
             label: Some(err_type),
@@ -131,13 +93,13 @@ impl From<regex::Error> for ParseErrorInfo {
 impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let (err_type, reason) = match &self.error {
-            ParseErrorInfo::InvalidSyntax(r) => ("Invalid syntax", r),
-            ParseErrorInfo::ContextError(r, _) => ("Context error", r),
-            ParseErrorInfo::SubstitutionError(r, _) => ("Substitution error", r),
-            ParseErrorInfo::GlobError(r) => ("Glob translation error", r),
-            ParseErrorInfo::RegexError(r) => ("Regex error", r),
-            ParseErrorInfo::LexerError(r) => ("Invalid or unsupported syntax", r),
-            ParseErrorInfo::RestrictedSyntax(r, _) => ("Restricted syntax", r),
+            ParseErrorInfo::InvalidSyntax(r) => ("Invalid syntax", r.as_str()),
+            ParseErrorInfo::ContextError(r, _) => ("Context error", r.as_str()),
+            ParseErrorInfo::SubstitutionError(r, _) => ("Substitution error", r.as_str()),
+            ParseErrorInfo::GlobError(r) => ("Glob translation error", r.as_str()),
+            ParseErrorInfo::RegexError(r) => ("Regex error", r.as_str()),
+            ParseErrorInfo::LexerError(r) => ("Invalid or unsupported syntax", r.as_str()),
+            ParseErrorInfo::RestrictedSyntax(r, _) => ("Restricted syntax", r.as_str()),
         };
 
         write!(
