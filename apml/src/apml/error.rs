@@ -86,14 +86,21 @@ impl Diagnostic {
 }
 
 /// A structured parse error.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, thiserror::Error)]
 pub enum ParseErrorInfo {
+    #[error("invalid or unsupported syntax: {0}")]
     LexerError(String),
+    #[error("invalid syntax: {0}")]
     InvalidSyntax(String),
+    #[error("restricted syntax: {0}")]
     RestrictedSyntax(String, String),
+    #[error("context error: {0}")]
     ContextError(String, String),
+    #[error("substitution error: {0}")]
     SubstitutionError(String, String),
+    #[error("glob translation error: {0}")]
     GlobError(String),
+    #[error("regex error: {0}")]
     RegexError(String),
 }
 
@@ -136,7 +143,11 @@ impl fmt::Display for Diagnostic {
                 )
             }
             DiagnosticInfo::Warning(msg) => {
-                write!(f, "Warning at line {}, col {}: {}", self.span.line, self.span.col, msg)
+                write!(
+                    f,
+                    "Warning at line {}, col {}: {}",
+                    self.span.line, self.span.col, msg
+                )
             }
         }
     }

@@ -9,6 +9,7 @@ edition = "2021"
 regex = "1"
 annotate-snippets = "0.12"
 serde = { version = "1", features = ["derive"] }
+thiserror = "2"
 
 [dev-dependencies]
 anyhow = "1"
