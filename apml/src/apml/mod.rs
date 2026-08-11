@@ -13,7 +13,6 @@ mod lexer;
 mod parser;
 mod substitution;
 mod value;
-mod variables;
 
 use eval::{eval_stmts, Runner};
 use std::collections::HashMap;
@@ -32,9 +31,7 @@ pub type Context = HashMap<String, Value>;
 /// to run on untrusted files. If you explicitly need real command output,
 /// use [`parse_with_runner`] (at your own risk).
 pub fn parse(c: &str, context: &mut Context) -> Result<(), Vec<ParseError>> {
-    parse_with_runner(c, context, &mut |_stages: &[Vec<String>]| {
-        Ok(String::new())
-    })
+    parse_with_runner(c, context, &mut |_stages: &[Vec<String>]| Ok(String::new()))
 }
 
 /// Parse a `spec` / `defines` file and apply its variable assignments to
@@ -54,10 +51,7 @@ pub fn parse_with_runner(
     context: &mut Context,
     runner: &mut Runner,
 ) -> Result<(), Vec<ParseError>> {
-    let stmts = match parser::parse_program(c) {
-        Ok(stmts) => stmts,
-        Err(errors) => return Err(errors),
-    };
+    let stmts = parser::parse_program(c)?;
 
     let mut errors = Vec::new();
     for stmt in &stmts {
