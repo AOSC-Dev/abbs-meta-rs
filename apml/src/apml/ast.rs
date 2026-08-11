@@ -46,6 +46,10 @@ pub struct Word {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Field {
     Literal(String),
+    /// An unquoted escaped character `\c` (the backslash is removed, but the
+    /// escape information is preserved — needed e.g. to distinguish `~` from
+    /// `\~` for tilde expansion in `${var/pat/repl}`).
+    Escaped(char),
     SingleQuoted(String),
     DoubleQuoted(Vec<Field>),
     Param(Param),

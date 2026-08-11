@@ -259,3 +259,65 @@ fn test_pretty_print_does_not_panic() {
     }
     let _ = anyhow!("ok");
 }
+
+#[test]
+fn test_array_element_with_quoted_spaces_not_split() {
+    // `--with-lisp='sbcl --dynamic-space-size 4096'` and
+    // `--with-blas-libs="-lcblas -llapack -lgomp"` keep their spaces: word
+    // splitting only happens at unquoted-expansion whitespace.
+    let ctx = parse_into(
+        "A=(--with-lisp='sbcl --dynamic-space-size 4096' --enable-gmp)\n\
+         B=(--with-blas-libs=\"-lcblas -llapack -lgomp\")\n",
+    );
+    match ctx.get("A") {
+        Some(Value::Array(a)) => {
+            assert_eq!(a, &vec!["--with-lisp=sbcl --dynamic-space-size 4096", "--enable-gmp"]);
+        }
+        other => panic!("expected array, got {other:?}"),
+    }
+    match ctx.get("B") {
+        Some(Value::Array(b)) => assert_eq!(b, &vec!["--with-blas-libs=-lcblas -llapack -lgomp"]),
+        other => panic!("expected array, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_array_element_split_at_unquoted_expansion() {
+    // Unquoted expansions do split: `pre${X}post` with X="a b" → ["prea", "bpost"].
+    let ctx = parse_into("X=\"a b\"\nA=(pre${X}post)\n");
+    match ctx.get("A") {
+        Some(Value::Array(a)) => assert_eq!(a, &vec!["prea", "bpost"]),
+        other => panic!("expected array, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_array_element_substitution() {
+    // `${arr[@]/pat/rep}` applies the substitution to every element.
+    let ctx = parse_into(
+        "A=(x-1 y-2)\nB=(\"${A[@]/-/\\/}\")\nC=(\"${A[@]^^}\")\n",
+    );
+    match ctx.get("B") {
+        Some(Value::Array(b)) => assert_eq!(b, &vec!["x/1", "y/2"]),
+        other => panic!("expected array, got {other:?}"),
+    }
+    match ctx.get("C") {
+        Some(Value::Array(c)) => assert_eq!(c, &vec!["X-1", "Y-2"]),
+        other => panic!("expected array, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_tilde_expansion_in_replacement() {
+    // Bash tilde-expands an unquoted `~` replacement.
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/home/user".to_string());
+    let ctx = parse_into("V=abc-def\nA=${V/-/~}\n");
+    assert_eq!(scalar(&ctx, "A"), format!("abc{home}def"));
+}
+
+#[test]
+fn test_escaped_tilde_not_expanded() {
+    // A `\~` (escaped) replacement is not tilde-expanded.
+    let ctx = parse_into("V=abc-def\nA=${V/\\-/\\~}\n");
+    assert_eq!(scalar(&ctx, "A"), "abc~def");
+}

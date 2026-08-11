@@ -248,9 +248,9 @@ impl<'a> Lexer<'a> {
                         }
                         Some(_) => {
                             let c2 = self.bump().unwrap();
-                            push_literal(&mut fields, &c2.to_string());
+                            fields.push(Field::Escaped(c2));
                         }
-                        None => push_literal(&mut fields, "\\"),
+                        None => fields.push(Field::Escaped('\\')),
                     }
                 }
                 '$' => {
@@ -1062,9 +1062,9 @@ impl<'a> Lexer<'a> {
                         }
                         Some(_) => {
                             let c2 = self.bump().unwrap();
-                            push_literal(&mut fields, &c2.to_string());
+                            fields.push(Field::Escaped(c2));
                         }
-                        None => push_literal(&mut fields, "\\"),
+                        None => fields.push(Field::Escaped('\\')),
                     }
                 }
                 '$' => {

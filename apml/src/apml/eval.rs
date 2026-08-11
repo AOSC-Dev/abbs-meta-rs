@@ -102,6 +102,7 @@ fn eval_fields_scalar(
     for f in fields {
         match f {
             Field::Literal(s) => out.push_str(s),
+            Field::Escaped(c) => out.push(*c),
             Field::SingleQuoted(s) => out.push_str(s),
             Field::DoubleQuoted(fs) => out.push_str(&eval_fields_scalar(fs, ctx, runner)?),
             Field::Param(p) => out.push_str(&eval_param_scalar(p, ctx, runner)?),
@@ -130,63 +131,111 @@ fn eval_fields_scalar(
 }
 
 /// Evaluate a word in an array-element context: may expand to multiple
-/// values when it contains `"${arr[@]}"`/`${arr[@]}` (or `$@`).
+/// values.
+///
+/// Word splitting happens only at whitespace introduced by *unquoted*
+/// parameter/command/arithmetic expansions; quoted or escaped whitespace is
+/// kept as part of a single element (Bash semantics).
 fn eval_array_word(
     w: &Word,
     ctx: &mut Context,
     runner: &mut Runner,
 ) -> Result<Vec<String>, ParseErrorInfo> {
-    // `"${arr[@]}"` alone → one element per array element.
-    if w.fields.len() == 1 {
-        if let Field::DoubleQuoted(fs) = &w.fields[0] {
-            if fs.len() == 1 {
-                if let Field::Param(Param::Braced {
-                    name,
-                    index: Some(Index::At),
-                    op: BracedOp::Value,
-                }) = &fs[0]
-                {
-                    return Ok(array_elems(name, ctx));
+    let mut values: Vec<String> = Vec::new();
+    for f in &w.fields {
+        match f {
+            Field::Literal(s) | Field::SingleQuoted(s) => append_or_push(&mut values, s),
+            Field::Escaped(c) => append_or_push(&mut values, &c.to_string()),
+            Field::DoubleQuoted(fs) => {
+                // `"${arr[@]}"` / `"${arr[@]<op>...}"` / `"$@"` alone →
+                // one value per array element.
+                if w.fields.len() == 1 && fs.len() == 1 {
+                    if let Field::Param(Param::Braced {
+                        name,
+                        index: Some(Index::At),
+                        op,
+                    }) = &fs[0]
+                    {
+                        return apply_array_op(name, op, ctx, runner);
+                    }
+                    if let Field::Param(Param::Special('@')) = &fs[0] {
+                        return Ok(Vec::new());
+                    }
                 }
-                if let Field::Param(Param::Special('@')) = &fs[0] {
-                    return Ok(Vec::new());
+                // Inside double quotes: no word splitting.
+                let s = eval_fields_scalar(fs, ctx, runner)?;
+                append_or_push(&mut values, &s);
+            }
+            Field::Param(p) => {
+                // Unquoted `${arr[@]<op>...}` / `$@` alone.
+                if w.fields.len() == 1 {
+                    if let Param::Braced {
+                        name,
+                        index: Some(Index::At),
+                        op,
+                    } = p
+                    {
+                        let mut out = Vec::new();
+                        for e in apply_array_op(name, op, ctx, runner)? {
+                            out.extend(ifs_split(&e));
+                        }
+                        return Ok(out);
+                    }
+                    if let Param::Special('@') = p {
+                        return Ok(Vec::new());
+                    }
                 }
+                // Unquoted expansion: word-split the result.
+                let s = eval_param_scalar(p, ctx, runner)?;
+                split_append(&mut values, &s);
+            }
+            Field::Command(_) | Field::Arith(_) => {
+                let single = Word {
+                    span: w.span,
+                    fields: vec![f.clone()],
+                };
+                let s = eval_scalar_word(&single, ctx, runner)?;
+                split_append(&mut values, &s);
             }
         }
-        // unquoted `${arr[@]}` → each element, then IFS-split each.
-        if let Field::Param(Param::Braced {
-            name,
-            index: Some(Index::At),
-            op: BracedOp::Value,
-        }) = &w.fields[0]
-        {
-            let mut out = Vec::new();
-            for e in array_elems(name, ctx) {
-                out.extend(ifs_split(&e));
-            }
-            return Ok(out);
-        }
-        if let Field::Param(Param::Special('@')) = &w.fields[0] {
-            return Ok(Vec::new());
-        }
     }
-
-    let s = eval_scalar_word(w, ctx, runner)?;
-    if is_fully_quoted(w) {
-        Ok(vec![s])
-    } else {
-        Ok(ifs_split(&s))
-    }
+    Ok(values)
 }
 
-fn is_fully_quoted(w: &Word) -> bool {
-    if w.fields.len() != 1 {
-        return false;
+/// Apply a braced operation to every element of an array
+/// (`${arr[@]<op>...}`).
+fn apply_array_op(
+    name: &str,
+    op: &BracedOp,
+    ctx: &mut Context,
+    runner: &mut Runner,
+) -> Result<Vec<String>, ParseErrorInfo> {
+    let elems = array_elems(name, ctx);
+    if elems.is_empty() {
+        return Ok(Vec::new());
     }
-    matches!(
-        w.fields[0],
-        Field::SingleQuoted(_) | Field::DoubleQuoted(_)
-    )
+    let mut out = Vec::new();
+    for e in elems {
+        out.push(eval_braced_with_origin(name, &e, true, op, ctx, runner)?);
+    }
+    Ok(out)
+}
+
+fn append_or_push(values: &mut Vec<String>, s: &str) {
+    if values.is_empty() {
+        values.push(String::new());
+    }
+    values.last_mut().unwrap().push_str(s);
+}
+
+fn split_append(values: &mut Vec<String>, s: &str) {
+    let mut parts = ifs_split(s);
+    if parts.is_empty() {
+        return;
+    }
+    let first = parts.remove(0);
+    append_or_push(values, &first);
+    values.extend(parts);
 }
 
 fn array_elems(name: &str, ctx: &Context) -> Vec<String> {
@@ -242,22 +291,33 @@ fn eval_braced(
     ctx: &mut Context,
     runner: &mut Runner,
 ) -> Result<String, ParseErrorInfo> {
+    let origin = param_value(name, index.as_ref(), ctx);
+    let is_set = ctx.contains_key(name);
+    eval_braced_with_origin(name, &origin, is_set, op, ctx, runner)
+}
+
+/// Apply a braced operation to a single origin string (used both for scalar
+/// parameters and, via [`apply_array_op`], for each array element).
+fn eval_braced_with_origin(
+    name: &str,
+    origin: &str,
+    is_set: bool,
+    op: &BracedOp,
+    ctx: &mut Context,
+    runner: &mut Runner,
+) -> Result<String, ParseErrorInfo> {
     match op {
-        BracedOp::Value => Ok(param_value(name, index.as_ref(), ctx)),
+        BracedOp::Value => Ok(origin.to_string()),
         BracedOp::Default { colon, word } => {
-            let v = param_value(name, None, ctx);
-            let set = ctx.contains_key(name);
-            let use_self = if *colon { set && !v.is_empty() } else { set };
+            let use_self = if *colon { is_set && !origin.is_empty() } else { is_set };
             if use_self {
-                Ok(v)
+                Ok(origin.to_string())
             } else {
                 eval_scalar_word(word, ctx, runner)
             }
         }
         BracedOp::Alternative { colon, word } => {
-            let v = param_value(name, None, ctx);
-            let set = ctx.contains_key(name);
-            let use_alt = if *colon { set && !v.is_empty() } else { set };
+            let use_alt = if *colon { is_set && !origin.is_empty() } else { is_set };
             if use_alt {
                 eval_scalar_word(word, ctx, runner)
             } else {
@@ -265,9 +325,7 @@ fn eval_braced(
             }
         }
         BracedOp::Error { colon, word } => {
-            let v = param_value(name, None, ctx);
-            let set = ctx.contains_key(name);
-            let is_err = if *colon { !set || v.is_empty() } else { !set };
+            let is_err = if *colon { !is_set || origin.is_empty() } else { !is_set };
             if is_err {
                 let msg = eval_scalar_word(word, ctx, runner)?;
                 Err(ParseErrorInfo::SubstitutionError(
@@ -275,28 +333,24 @@ fn eval_braced(
                     name.to_string(),
                 ))
             } else {
-                Ok(v)
+                Ok(origin.to_string())
             }
         }
         BracedOp::Assign { colon, word } => {
-            let v = param_value(name, None, ctx);
-            let set = ctx.contains_key(name);
-            let need_assign = if *colon { !set || v.is_empty() } else { !set };
+            let need_assign = if *colon { !is_set || origin.is_empty() } else { !is_set };
             if need_assign {
                 let val = eval_scalar_word(word, ctx, runner)?;
                 ctx.insert(name.to_string(), Value::Scalar(val.clone()));
                 Ok(val)
             } else {
-                Ok(v)
+                Ok(origin.to_string())
             }
         }
         BracedOp::Substring(word) => {
-            let v = param_value(name, None, ctx);
             let cmd = eval_scalar_word(word, ctx, runner)?;
-            substitution::get_substring(&v, &cmd)
+            substitution::get_substring(origin, &cmd)
         }
         BracedOp::Trim { kind, word } => {
-            let v = param_value(name, None, ctx);
             let pat = eval_scalar_word(word, ctx, runner)?;
             let (mode, greedy) = match kind {
                 TrimKind::PrefixShort => (true, false),
@@ -304,7 +358,7 @@ fn eval_braced(
                 TrimKind::SuffixShort => (false, false),
                 TrimKind::SuffixLong => (false, true),
             };
-            substitution::get_trim_prefix(&v, &pat, mode, greedy)
+            substitution::get_trim_prefix(origin, &pat, mode, greedy)
         }
         BracedOp::Replace {
             all,
@@ -312,25 +366,58 @@ fn eval_braced(
             pattern,
             replacement,
         } => {
-            let v = param_value(name, None, ctx);
             let pat = eval_scalar_word(pattern, ctx, runner)?;
-            let rep = eval_scalar_word(replacement, ctx, runner)?;
-            substitution::get_replace(&v, &pat, &rep, *all, *anchor)
+            let mut rep = eval_scalar_word(replacement, ctx, runner)?;
+            // Bash performs tilde expansion on an *unquoted* replacement that
+            // begins with `~` (a `\~` escape or quoted `~` is not expanded).
+            if should_tilde_expand(replacement) {
+                rep = tilde_expand(&rep);
+            }
+            substitution::get_replace(origin, &pat, &rep, *all, *anchor)
         }
         BracedOp::CaseMod { kind, word } => {
-            let v = param_value(name, None, ctx);
             let pat = if word.fields.is_empty() {
                 None
             } else {
                 Some(eval_scalar_word(word, ctx, runner)?)
             };
             match kind {
-                CaseKind::UpperOnce => substitution::get_upper_case(&v, pat.as_deref(), false),
-                CaseKind::UpperAll => substitution::get_upper_case(&v, pat.as_deref(), true),
-                CaseKind::LowerOnce => substitution::get_lower_case(&v, pat.as_deref(), false),
-                CaseKind::LowerAll => substitution::get_lower_case(&v, pat.as_deref(), true),
+                CaseKind::UpperOnce => {
+                    substitution::get_upper_case(origin, pat.as_deref(), false)
+                }
+                CaseKind::UpperAll => substitution::get_upper_case(origin, pat.as_deref(), true),
+                CaseKind::LowerOnce => {
+                    substitution::get_lower_case(origin, pat.as_deref(), false)
+                }
+                CaseKind::LowerAll => substitution::get_lower_case(origin, pat.as_deref(), true),
             }
         }
+    }
+}
+
+/// Whether the replacement word of `${var/pat/repl}` begins with an
+/// unquoted, unescaped `~` (the only form Bash tilde-expands).
+fn should_tilde_expand(word: &Word) -> bool {
+    matches!(word.fields.first(), Some(Field::Literal(s)) if s.starts_with('~'))
+}
+
+/// Tilde expansion for the replacement of `${var/pat/repl}` (Bash scans the
+/// replacement for tilde expansion). Only the `~` and `~/...` forms are
+/// handled, using `$HOME`.
+fn tilde_expand(s: &str) -> String {
+    if !s.starts_with('~') {
+        return s.to_string();
+    }
+    let home = std::env::var("HOME").unwrap_or_default();
+    if home.is_empty() {
+        return s.to_string();
+    }
+    let rest = &s[1..];
+    if rest.is_empty() || rest.starts_with('/') {
+        format!("{home}{rest}")
+    } else {
+        // `~user` forms are left untouched.
+        s.to_string()
     }
 }
 
