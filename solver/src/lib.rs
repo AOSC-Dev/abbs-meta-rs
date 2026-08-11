@@ -51,8 +51,8 @@ impl Solver {
             let choices: Vec<(usize, PackageVersion)> = match self.pool.pkg_name_to_ids(pkg) {
                 Some(pkgs) => pkgs
                     .iter()
+                    .filter(|&(_, ver)| ver_req.within(ver))
                     .cloned()
-                    .filter(|(_, ver)| ver_req.within(ver))
                     .collect(),
                 None => {
                     return Err(SolverError::Unsolvable(format!(
@@ -62,7 +62,7 @@ impl Solver {
                 }
             };
             let id = choices
-                .get(0)
+                .first()
                 .ok_or_else(|| format_err!("No suitable version for {}", pkg))?;
             formula.add_clause(&[Lit::from_dimacs(id.0 as isize)]);
         }

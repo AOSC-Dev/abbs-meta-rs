@@ -75,7 +75,7 @@ impl fmt::Display for PackageVersion {
             write!(f, "{}:", self.epoch)?;
         }
         for segment in self.version.iter() {
-            write!(f, "{}", &segment.0)?;
+            write!(f, "{}", segment.0)?;
             if let Some(num) = segment.1 {
                 write!(f, "{}", num)?;
             }
@@ -105,9 +105,9 @@ impl Ord for PackageVersion {
         // Reverse them so that we can pop them
         self_vec.reverse();
         other_vec.reverse();
-        while !self_vec.is_empty() {
+        while let Some(mut x) = self_vec.pop() {
             // Match non digit
-            let mut x = self_vec.pop().unwrap();
+
             let mut y = match other_vec.pop() {
                 Some(y) => y,
                 None => {
