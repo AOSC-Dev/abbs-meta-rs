@@ -1,4 +1,4 @@
-use abbs_meta_apml::{lint, parse, parse_with_runner, Context, Diagnostic, DiagnosticInfo, Lint, Value};
+use abbs_meta_apml::{lint, parse, parse_with_runner, Context, Diagnostic, DiagnosticInfo, Lint, LintFix, Value};
 
 use anyhow::{anyhow, Result};
 use std::io::Read;
@@ -165,9 +165,18 @@ fn test_lint_pkgdes_style() {
     assert!(rule_findings("PKGDES=\"File manager for Xfce\"\n", "pkgdes-style").is_empty());
     // Digit start is acceptable too (e.g. product names like "3D ...").
     assert!(rule_findings("PKGDES=\"3D visualization tool for ROS 2\"\n", "pkgdes-style").is_empty());
-    // Lowercase start + trailing period → two findings.
-    let lints = rule_findings("PKGDES=\"library for rendering pdf.\"\n", "pkgdes-style");
+    // Lowercase start + trailing period → two findings, each with a fix
+    // (capitalize the `l`, drop the trailing `.`).
+    let src = "PKGDES=\"library for rendering pdf.\"\n";
+    let lints = rule_findings(src, "pkgdes-style");
     assert_eq!(lints.len(), 2, "expected start + punctuation findings: {lints:?}");
+    let fixes: Vec<&LintFix> = lints.iter().filter_map(|l| l.fix.as_ref()).collect();
+    assert_eq!(fixes.len(), 2, "both findings should carry fixes");
+    let mut replaced: Vec<&str> = fixes.iter().map(|f| &src[f.start..f.end]).collect();
+    replaced.sort_unstable();
+    assert_eq!(replaced, vec![".", "l"]);
+    assert!(fixes.iter().any(|f| f.replacement == "L"));
+    assert!(fixes.iter().any(|f| f.replacement.is_empty()));
 }
 
 #[test]
@@ -175,8 +184,13 @@ fn test_lint_fail_arch() {
     // Valid extglob forms pass.
     assert!(rule_findings("FAIL_ARCH=\"!(mainline)\"\n", "fail-arch").is_empty());
     assert!(rule_findings("FAIL_ARCH=\"@(retro|loongson3|riscv64)\"\n", "fail-arch").is_empty());
-    // Legacy plain-arch form is reported.
-    assert!(!rule_findings("FAIL_ARCH=\"loongson3\"\n", "fail-arch").is_empty());
+    // Legacy plain-arch form is reported and wrapped into `@(...)`.
+    let src = "FAIL_ARCH=\"loongson3\"\n";
+    let lints = rule_findings(src, "fail-arch");
+    assert_eq!(lints.len(), 1);
+    let fix = lints[0].fix.as_ref().expect("should carry a wrap fix");
+    assert_eq!(&src[fix.start..fix.end], "loongson3");
+    assert_eq!(fix.replacement, "@(loongson3)");
     // Unknown architecture is reported.
     assert!(!rule_findings("FAIL_ARCH=\"!(amd64|fooarch)\"\n", "fail-arch").is_empty());
     // Dynamic (empty) values are not validated.
@@ -185,7 +199,12 @@ fn test_lint_fail_arch() {
 
 #[test]
 fn test_lint_srctbl_http() {
-    assert!(!rule_findings("SRCTBL=\"http://example.com/foo.tar.xz\"\n", "srctbl-http").is_empty());
+    let src = "SRCTBL=\"http://example.com/foo.tar.xz\"\n";
+    let lints = rule_findings(src, "srctbl-http");
+    assert_eq!(lints.len(), 1);
+    let fix = lints[0].fix.as_ref().expect("should carry an https fix");
+    assert_eq!(&src[fix.start..fix.end], "http://");
+    assert_eq!(fix.replacement, "https://");
     assert!(rule_findings("SRCTBL=\"https://example.com/foo.tar.xz\"\n", "srctbl-http").is_empty());
 }
 
@@ -195,14 +214,18 @@ fn test_lint_pkgsection() {
     assert!(rule_findings("PKGSEC=libs\n", "pkgsection").is_empty());
     assert!(rule_findings("PKGSEC=LXQt\n", "pkgsection").is_empty());
     assert!(rule_findings("PKGSEC=non-free/devel\n", "pkgsection").is_empty());
-    // Non-canonical with a suggestion.
-    let lints = rule_findings("PKGSEC=util\n", "pkgsection");
+    // Non-canonical with a suggestion and a fix (`util` → `utils`).
+    let src = "PKGSEC=util\n";
+    let lints = rule_findings(src, "pkgsection");
     assert_eq!(lints.len(), 1);
     assert!(
         lints[0].message.contains("utils"),
         "expected a `utils` suggestion, got: {}",
         lints[0].message
     );
+    let fix = lints[0].fix.as_ref().expect("should carry a fix");
+    assert_eq!(&src[fix.start..fix.end], "util");
+    assert_eq!(fix.replacement, "utils");
     // Non-canonical without a close match.
     assert!(!rule_findings("PKGSEC=erlang\n", "pkgsection").is_empty());
 }

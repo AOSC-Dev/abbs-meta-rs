@@ -89,10 +89,10 @@ pub fn lint(c: &str, context: &Context) -> Vec<Lint> {
     let mut out = Vec::new();
     out.extend(rule_undefined_variable(&stmts, context));
     out.extend(rule_typo(c, &stmts, context));
-    out.extend(rule_pkgdes_style(&stmts, context));
-    out.extend(rule_fail_arch(&stmts, context));
-    out.extend(rule_srctbl_http(&stmts, context));
-    out.extend(rule_pkgsection(&stmts, context));
+    out.extend(rule_pkgdes_style(c, &stmts, context));
+    out.extend(rule_fail_arch(c, &stmts, context));
+    out.extend(rule_srctbl_http(c, &stmts, context));
+    out.extend(rule_pkgsection(c, &stmts, context));
     out.extend(rule_required_fields(c, &stmts));
     out
 }
@@ -198,14 +198,19 @@ fn is_known_section(s: &str) -> bool {
         .is_some_and(|rest| KNOWN_SECTIONS.contains(&rest))
 }
 
+/// Result of [`eval_var`]: the span of the last assignment, the evaluated
+/// value, and — when the variable is assigned exactly once with `=` — the
+/// byte range of the value word in the source (so a rule can edit it).
+type EvaledVar = (Span, String, Option<(usize, usize)>);
+
 /// Evaluate the final scalar value of `name` as assigned by `stmts` (in
-/// order, handling `+=`), against the initial `context`. Returns the span of
-/// the last assignment and the evaluated value.
-fn eval_var(stmts: &[Stmt], context: &Context, name: &str) -> Option<(Span, String)> {
+/// order, handling `+=`), against the initial `context`.
+fn eval_var(stmts: &[Stmt], context: &Context, name: &str) -> Option<EvaledVar> {
     let mut ctx = context.clone();
     let mut runner = |_stages: &[Vec<String>]| Ok(String::new());
     let mut warnings = Vec::new();
-    let mut result: Option<(Span, String)> = None;
+    let mut result: Option<EvaledVar> = None;
+    let mut reassigned = false;
     for stmt in stmts {
         if stmt.name != name {
             continue;
@@ -217,14 +222,46 @@ fn eval_var(stmts: &[Stmt], context: &Context, name: &str) -> Option<(Span, Stri
         let value = match stmt.op {
             AssignOp::Eq => s,
             AssignOp::PlusEq => {
-                let mut v = result.take().map(|(_, v)| v).unwrap_or_default();
+                let mut v = result.take().map(|(_, v, _)| v).unwrap_or_default();
                 v.push_str(&s);
                 v
             }
         };
-        result = Some((stmt.span, value));
+        // Only a single `=` assignment gives a value range that is safe to
+        // edit; `+=` or a reassignment spans multiple words.
+        let range = if reassigned || stmt.op == AssignOp::PlusEq {
+            None
+        } else {
+            Some((w.span.byte, w.end))
+        };
+        result = Some((stmt.span, value, range));
+        reassigned = true;
     }
     result
+}
+
+/// Byte range of the *content* of a value word (`start..end`), stripping one
+/// layer of surrounding quotes, plus the content itself. Returns `None` when
+/// the value is empty or dynamic (contains an unexpanded `$`) — such values
+/// are not safely editable.
+fn value_content(src: &str, range: (usize, usize)) -> Option<(usize, usize, &str)> {
+    let (mut s, mut e) = range;
+    let raw = &src[s..e];
+    if raw.len() >= 2
+        && ((raw.starts_with('"') && raw.ends_with('"'))
+            || (raw.starts_with('\'') && raw.ends_with('\'')))
+    {
+        s += 1;
+        e -= 1;
+    }
+    if s >= e {
+        return None;
+    }
+    let content = &src[s..e];
+    if content.contains('$') {
+        return None;
+    }
+    Some((s, e, content))
 }
 
 /// Whether `name` looks like a genuine ABBS variable: a known base name or a
@@ -340,13 +377,23 @@ fn rule_typo(c: &str, stmts: &[Stmt], context: &Context) -> Vec<Lint> {
 /// `pkgdes-style`: PKGDES should start with an uppercase letter or a digit
 /// (e.g. `3D visualization tool ...`) and not end with punctuation
 /// (package-styling-manual §2.3).
-fn rule_pkgdes_style(stmts: &[Stmt], context: &Context) -> Vec<Lint> {
-    let Some((span, value)) = eval_var(stmts, context, "PKGDES") else {
+fn rule_pkgdes_style(c: &str, stmts: &[Stmt], context: &Context) -> Vec<Lint> {
+    let Some((span, value, range)) = eval_var(stmts, context, "PKGDES") else {
         return Vec::new();
     };
+    let content = range.and_then(|r| value_content(c, r));
     let mut out = Vec::new();
     let first = value.chars().next().unwrap_or(' ');
     if !(first.is_ascii_uppercase() || first.is_ascii_digit()) {
+        // Capitalize a lowercase leading letter (plain literal values only).
+        let fix = match (first.is_ascii_lowercase(), content) {
+            (true, Some((s, _, content))) => content.chars().next().map(|ch| LintFix {
+                start: s,
+                end: s + 1,
+                replacement: ch.to_ascii_uppercase().to_string(),
+            }),
+            _ => None,
+        };
         out.push(Lint {
             rule: "pkgdes-style",
             severity: LintSeverity::Warning,
@@ -354,17 +401,29 @@ fn rule_pkgdes_style(stmts: &[Stmt], context: &Context) -> Vec<Lint> {
             message: format!(
                 "PKGDES should start with an uppercase letter or a digit (starts with `{first}`)"
             ),
-            fix: None,
+            fix,
         });
     }
     if let Some(last) = value.chars().last() {
         if ".,;:!?".contains(last) {
+            // Drop a trailing punctuation character (plain literal values
+            // only).
+            let fix = match content {
+                Some((_, e, content)) if content.ends_with(last) => {
+                    Some(LintFix {
+                        start: e - last.len_utf8(),
+                        end: e,
+                        replacement: String::new(),
+                    })
+                }
+                _ => None,
+            };
             out.push(Lint {
                 rule: "pkgdes-style",
                 severity: LintSeverity::Warning,
                 span: span.into(),
                 message: format!("PKGDES should not end with punctuation (`{last}`)"),
-                fix: None,
+                fix,
             });
         }
     }
@@ -373,10 +432,11 @@ fn rule_pkgdes_style(stmts: &[Stmt], context: &Context) -> Vec<Lint> {
 
 /// `fail-arch`: FAIL_ARCH must be an extglob expression `@(arch|...)` /
 /// `!(arch|...)` over known architectures and groups.
-fn rule_fail_arch(stmts: &[Stmt], context: &Context) -> Vec<Lint> {
-    let Some((span, value)) = eval_var(stmts, context, "FAIL_ARCH") else {
+fn rule_fail_arch(c: &str, stmts: &[Stmt], context: &Context) -> Vec<Lint> {
+    let Some((span, value, range)) = eval_var(stmts, context, "FAIL_ARCH") else {
         return Vec::new();
     };
+    let content = range.and_then(|r| value_content(c, r));
     let mut out = Vec::new();
     let value = value.trim();
     // Empty (e.g. a dynamic `FAIL_ARCH="${__CROSS}"` that did not expand in
@@ -389,6 +449,13 @@ fn rule_fail_arch(stmts: &[Stmt], context: &Context) -> Vec<Lint> {
         .or_else(|| value.strip_prefix("!("))
         .and_then(|s| s.strip_suffix(')'));
     let Some(inner) = inner else {
+        // Legacy plain-arch form: wrap it in `@(...)` to match the current
+        // extglob-only format.
+        let fix = content.map(|(s, e, content)| LintFix {
+            start: s,
+            end: e,
+            replacement: format!("@({content})"),
+        });
         out.push(Lint {
             rule: "fail-arch",
             severity: LintSeverity::Warning,
@@ -396,7 +463,7 @@ fn rule_fail_arch(stmts: &[Stmt], context: &Context) -> Vec<Lint> {
             message: format!(
                 "FAIL_ARCH should be an extglob expression `@(arch|...)` or `!(arch|...)`, got `{value}`"
             ),
-            fix: None,
+            fix,
         });
         return out;
     };
@@ -418,18 +485,27 @@ fn rule_fail_arch(stmts: &[Stmt], context: &Context) -> Vec<Lint> {
 
 /// `srctbl-http`: SRCTBL should use HTTPS rather than HTTP or FTP
 /// (QA W112 covers the `http://` case).
-fn rule_srctbl_http(stmts: &[Stmt], context: &Context) -> Vec<Lint> {
-    let Some((span, value)) = eval_var(stmts, context, "SRCTBL") else {
+fn rule_srctbl_http(c: &str, stmts: &[Stmt], context: &Context) -> Vec<Lint> {
+    let Some((span, value, range)) = eval_var(stmts, context, "SRCTBL") else {
         return Vec::new();
     };
+    let content = range.and_then(|r| value_content(c, r));
     let mut out = Vec::new();
     if value.starts_with("http://") {
+        // Rewrite `http://` to `https://` in a plain literal value.
+        let fix = content.and_then(|(s, _, content)| {
+            content.find("http://").map(|pos| LintFix {
+                start: s + pos,
+                end: s + pos + 7,
+                replacement: "https://".to_string(),
+            })
+        });
         out.push(Lint {
             rule: "srctbl-http",
             severity: LintSeverity::Warning,
             span: span.into(),
             message: "SRCTBL uses insecure http:// (QA W112)".to_string(),
-            fix: None,
+            fix,
         });
     } else if value.starts_with("ftp://") {
         out.push(Lint {
@@ -445,10 +521,11 @@ fn rule_srctbl_http(stmts: &[Stmt], context: &Context) -> Vec<Lint> {
 
 /// `pkgsection`: PKGSEC must be a canonical section (autobuild
 /// `sets/section`); a close match is suggested when it is unique.
-fn rule_pkgsection(stmts: &[Stmt], context: &Context) -> Vec<Lint> {
-    let Some((span, value)) = eval_var(stmts, context, "PKGSEC") else {
+fn rule_pkgsection(c: &str, stmts: &[Stmt], context: &Context) -> Vec<Lint> {
+    let Some((span, value, range)) = eval_var(stmts, context, "PKGSEC") else {
         return Vec::new();
     };
+    let content = range.and_then(|r| value_content(c, r));
     let value = value.trim();
     if value.is_empty() || is_known_section(value) {
         return Vec::new();
@@ -470,9 +547,17 @@ fn rule_pkgsection(stmts: &[Stmt], context: &Context) -> Vec<Lint> {
         }
     }
     let mut message = format!("PKGSEC `{value}` is not a canonical section");
+    let mut fix = None;
     if let Some((d, sugg)) = best {
         if !ambiguous && d <= 2 {
             message.push_str(&format!(" — did you mean `{sugg}`?"));
+            // Replace the value with the suggested canonical section (plain
+            // literal values only).
+            fix = content.map(|(s, e, _)| LintFix {
+                start: s,
+                end: e,
+                replacement: sugg.to_string(),
+            });
         }
     }
     vec![Lint {
@@ -480,7 +565,7 @@ fn rule_pkgsection(stmts: &[Stmt], context: &Context) -> Vec<Lint> {
         severity: LintSeverity::Warning,
         span: span.into(),
         message,
-        fix: None,
+        fix,
     }]
 }
 
