@@ -4,6 +4,7 @@ members = [
     "apml",
     "dumper",
     "libsolv-sys",
+    "lint",
     "tree",
     "resolver",
     "solver"

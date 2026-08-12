@@ -141,7 +141,7 @@ impl PackagePool {
             } else {
                 println!(
                     "Warning: dependency {} can't be fulfilled for pkg {}",
-                    &dep.0, pkg.name
+                    dep.0, pkg.name
                 );
             }
         }

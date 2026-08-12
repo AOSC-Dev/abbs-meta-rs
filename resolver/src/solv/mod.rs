@@ -62,7 +62,7 @@ pub fn calculate_deps(pool: &mut Pool, tasks: &[Task]) -> Result<Transaction> {
     let mut q = Queue::new();
     for task in tasks {
         if let Some(pkg) = &task.spec {
-            tmp = pool.match_package(&pkg, tmp)?;
+            tmp = pool.match_package(pkg, tmp)?;
             q.extend(&tmp);
             q.mark_all_as(task.flags);
             continue;

@@ -1,22 +1,59 @@
-name: 'ABBS Rust Test'
+name: 'ABBS parser verification'
 
 on: [push, pull_request]
 
 jobs:
-  build:
+  verify:
     runs-on: 'ubuntu-latest'
     steps:
-      - uses: hecrj/setup-rust-action@master
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
         with:
-          rust-version: stable
-      - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y bash-builtins cmake ninja-build libev-dev
-      - uses: actions/checkout@v2
-        with:
-          submodules: true
-      - name: 'Cross verify with current aosc-os-abbs'
-        run: ./dumper/tools/verify/autoverify.sh || true
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Clone aosc-os-abbs
+        run: git clone --depth=1 https://github.com/AOSC-Dev/aosc-os-abbs.git /tmp/aosc-os-abbs
+
+      # Unit tests. SPEC_DIR lets the whole-tree test (parse_whole_tree) run
+      # against the freshly cloned repository.
+      - name: Unit tests
         env:
-          PRINT_ERROR: 'ON'
-      - name: 'Print errors'
-        run: cat stdout.log
+          SPEC_DIR: /tmp/aosc-os-abbs
+        run: cargo test -p abbs-meta-apml
+
+      # Ground truth: source every spec/defines file in real bash and dump
+      # all variables (scalars and arrays) to /tmp/all_vars{,_def}.json.
+      # Fails if bash cannot source any file.
+      - name: Collect reference data (real bash)
+        env:
+          SPEC_DIR: /tmp/aosc-os-abbs
+        run: python3 dumper/tools/reference/reference_dump.py
+
+      - name: Build Rust dumper
+        run: cargo build --release -p abbs-meta-dump
+
+      # The Rust parser never executes `$(...)` command substitutions (they
+      # expand to empty) — it is safe to run on any input.
+      - name: Collect Rust parser data
+        env:
+          SPEC_DIR: /tmp/aosc-os-abbs
+        run: ./target/release/abbs-meta-dump
+
+      # Exits non-zero when any variable of any file differs between the
+      # bash reference and the Rust parser — failing the job. Files that
+      # contain `$(...)` are skipped (the parser deliberately refuses to
+      # execute them), and the skip count is printed.
+      - name: Compare implementations
+        env:
+          SPEC_DIR: /tmp/aosc-os-abbs
+        run: python3 dumper/tools/verify/verifier.py

@@ -81,12 +81,18 @@ fn solvable_to_meta(
     };
 
     Ok(PackageMeta {
-        name: name,
-        version: version,
+        name,
+        version,
         sha256: encode(checksum),
         path: path + "/" + &filename,
         action: change_to_action(change_type)?,
     })
+}
+
+impl Default for Pool {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Pool {
@@ -187,6 +193,12 @@ impl Repo {
 
 pub struct Queue {
     queue: ffi::Queue,
+}
+
+impl Default for Queue {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Queue {

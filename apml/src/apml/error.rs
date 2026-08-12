@@ -1,118 +1,121 @@
-use aho_corasick::{AhoCorasickBuilder, MatchKind};
-use annotate_snippets::{
-    display_list::{DisplayList, FormatOptions},
-    snippet::{Annotation, AnnotationType, Slice, Snippet, SourceAnnotation},
-};
+use annotate_snippets::{AnnotationKind, Level, Renderer, Snippet};
 use std::fmt;
 
-#[derive(Debug, Clone)]
-pub struct ParseError {
+use super::ast::Span;
+
+/// The position of a diagnostic in the source, plus the byte range to
+/// highlight (clamped to the source when rendering).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DiagnosticSpan {
+    /// 1-based line.
     pub line: usize,
+    /// 1-based column.
     pub col: usize,
+    /// Byte offset of the end of the highlighted range.
     pub byte: usize,
+    /// Byte offset of the start of the highlighted range.
     pub prev_byte: usize,
-    pub error: ParseErrorInfo,
 }
 
+impl From<Span> for DiagnosticSpan {
+    fn from(span: Span) -> Self {
+        DiagnosticSpan {
+            line: span.line,
+            col: span.col,
+            byte: span.byte,
+            prev_byte: span.byte,
+        }
+    }
+}
+
+impl DiagnosticSpan {
+    /// The source byte range to highlight, clamped to the source bounds so
+    /// the snippet renderer never panics on out-of-range positions.
+    pub fn highlight_range(&self, source: &str) -> std::ops::Range<usize> {
+        let len = source.len();
+        let mut start = self.prev_byte.min(len);
+        let mut end = self.byte.min(len);
+        if start > end {
+            std::mem::swap(&mut start, &mut end);
+        }
+        if start == end && start < len {
+            end += 1;
+        }
+        start..end
+    }
+}
+
+/// The payload of a [`Diagnostic`]: a fatal error or a non-fatal warning.
 #[derive(Debug, Clone)]
+pub enum DiagnosticInfo {
+    Error(ParseErrorInfo),
+    Warning(String),
+}
+
+/// A single diagnostic produced while parsing: a source location plus
+/// either an error or a warning.
+///
+/// Errors and warnings share this shape and only differ in
+/// [`DiagnosticInfo`] — e.g. a `$( ... )` command substitution that expanded
+/// to an empty string because it is never executed is reported as a warning.
+#[derive(Debug, Clone)]
+pub struct Diagnostic {
+    pub span: DiagnosticSpan,
+    pub info: DiagnosticInfo,
+}
+
+impl Diagnostic {
+    pub fn pretty_print(&self, source: &str, filename: &str) -> String {
+        let (level, title, label) = match &self.info {
+            DiagnosticInfo::Error(err) => {
+                let (title, reason) = err.summary();
+                (Level::ERROR, title, reason)
+            }
+            DiagnosticInfo::Warning(msg) => (Level::WARNING, "Warning", msg.as_str()),
+        };
+        let range = self.span.highlight_range(source);
+        let report = &[level.primary_title(title).element(
+            Snippet::source(source)
+                .line_start(1)
+                .path(filename)
+                .fold(true)
+                .annotation(AnnotationKind::Primary.span(range).label(label)),
+        )];
+        Renderer::styled().render(report)
+    }
+}
+
+/// A structured parse error.
+#[derive(Debug, Clone, thiserror::Error)]
 pub enum ParseErrorInfo {
+    #[error("invalid or unsupported syntax: {0}")]
     LexerError(String),
+    #[error("invalid syntax: {0}")]
     InvalidSyntax(String),
+    #[error("restricted syntax: {0}")]
     RestrictedSyntax(String, String),
+    #[error("context error: {0}")]
     ContextError(String, String),
+    #[error("substitution error: {0}")]
     SubstitutionError(String, String),
+    #[error("glob translation error: {0}")]
     GlobError(String),
+    #[error("regex error: {0}")]
     RegexError(String),
 }
 
-#[inline]
-fn locate_keyword(
-    source: &str,
-    keyword: &str,
-    start: usize,
-    end: usize,
-    bare: bool,
-) -> Option<(usize, usize)> {
-    let mut search = AhoCorasickBuilder::new();
-    let searcher = if !bare {
-        search.match_kind(MatchKind::LeftmostLongest).build(&[
-            format!("${{{}", keyword).as_str(),
-            format!("${}", keyword).as_str(),
-            "$(",
-        ])
-    } else {
-        search.build(&[keyword])
-    }
-    .ok()?;
-
-    if start > end {
-        return None;
-    }
-    let range = searcher.find(&source.as_bytes()[start..end]);
-    if let Some(range) = range {
-        return Some((range.start(), range.end()));
-    }
-
-    None
-}
-
-impl ParseError {
-    pub fn pretty_print(&self, source: &str, filename: &str) -> String {
-        let mut bare_search = false;
-        let (err_type, reason, keyword) = match &self.error {
-            ParseErrorInfo::InvalidSyntax(r) => ("Invalid syntax", r, None),
-            ParseErrorInfo::ContextError(r, kw) => ("Context error", r, Some(kw)),
-            ParseErrorInfo::SubstitutionError(r, kw) => ("Substitution error", r, Some(kw)),
-            ParseErrorInfo::GlobError(r) => ("Glob translation error", r, None),
-            ParseErrorInfo::RegexError(r) => ("Regex error", r, None),
-            ParseErrorInfo::LexerError(r) => ("Invalid or unsupported syntax", r, None),
-            ParseErrorInfo::RestrictedSyntax(r, kw) => {
-                bare_search = true;
-                ("Restricted syntax", r, Some(kw))
-            }
-        };
-        let mut start_marker = self.prev_byte;
-        let mut end_marker = self.byte;
-        if let Some(keyword) = keyword {
-            if let Some((start, end)) =
-                locate_keyword(source, keyword, start_marker, end_marker, bare_search)
-            {
-                end_marker = start_marker + end;
-                start_marker += start;
-            }
+impl ParseErrorInfo {
+    /// A short human-readable summary (title and reason) for diagnostics.
+    fn summary(&self) -> (&'static str, &str) {
+        match self {
+            ParseErrorInfo::InvalidSyntax(r) => ("Invalid syntax", r.as_str()),
+            ParseErrorInfo::ContextError(r, _) => ("Context error", r.as_str()),
+            ParseErrorInfo::SubstitutionError(r, _) => ("Substitution error", r.as_str()),
+            ParseErrorInfo::GlobError(r) => ("Glob translation error", r.as_str()),
+            ParseErrorInfo::RegexError(r) => ("Regex error", r.as_str()),
+            ParseErrorInfo::LexerError(r) => ("Invalid or unsupported syntax", r.as_str()),
+            ParseErrorInfo::RestrictedSyntax(r, _) => ("Restricted syntax", r.as_str()),
         }
-
-        if let ParseErrorInfo::LexerError(_) = &self.error {
-            start_marker = self.byte - 1;
-            end_marker = self.byte;
-        }
-        let marker = SourceAnnotation {
-            label: reason,
-            annotation_type: AnnotationType::Error,
-            range: (start_marker, end_marker),
-        };
-        let title = Annotation {
-            label: Some(err_type),
-            id: None,
-            annotation_type: AnnotationType::Error,
-        };
-        let snippet = Snippet {
-            title: Some(title),
-            footer: vec![],
-            slices: vec![Slice {
-                source,
-                line_start: 1,
-                origin: Some(filename),
-                fold: true,
-                annotations: vec![marker],
-            }],
-            opt: FormatOptions {
-                color: true,
-                ..Default::default()
-            },
-        };
-        let list = DisplayList::from(snippet);
-        list.to_string()
     }
 }
 
@@ -128,24 +131,26 @@ impl From<regex::Error> for ParseErrorInfo {
     }
 }
 
-impl fmt::Display for ParseError {
+impl fmt::Display for Diagnostic {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let (err_type, reason) = match &self.error {
-            ParseErrorInfo::InvalidSyntax(r) => ("Invalid syntax", r),
-            ParseErrorInfo::ContextError(r, _) => ("Context error", r),
-            ParseErrorInfo::SubstitutionError(r, _) => ("Substitution error", r),
-            ParseErrorInfo::GlobError(r) => ("Glob translation error", r),
-            ParseErrorInfo::RegexError(r) => ("Regex error", r),
-            ParseErrorInfo::LexerError(r) => ("Invalid or unsupported syntax", r),
-            ParseErrorInfo::RestrictedSyntax(r, _) => ("Restricted syntax", r),
-        };
-
-        write!(
-            f,
-            "{} at line {}, col {}. Reason: {}",
-            err_type, self.line, self.col, reason
-        )
+        match &self.info {
+            DiagnosticInfo::Error(err) => {
+                let (err_type, reason) = err.summary();
+                write!(
+                    f,
+                    "{} at line {}, col {}. Reason: {}",
+                    err_type, self.span.line, self.span.col, reason
+                )
+            }
+            DiagnosticInfo::Warning(msg) => {
+                write!(
+                    f,
+                    "Warning at line {}, col {}: {}",
+                    self.span.line, self.span.col, msg
+                )
+            }
+        }
     }
 }
 
-impl std::error::Error for ParseError {}
+impl std::error::Error for Diagnostic {}

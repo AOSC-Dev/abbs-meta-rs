@@ -4,6 +4,7 @@ mod pkgsec;
 pub use error::{PackageError, PackageErrorType};
 pub use fail_arch::FailArch;
 
+use abbs_meta_apml::Context;
 use pkgsec::check_pkgsec;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, path::Path};
@@ -40,12 +41,15 @@ const NAME_FILED: &str = "PKGNAME";
 const MANDATORY_FIELDS: [&str; 3] = ["PKGVER", "PKGDES", "PKGSEC"];
 const ABBS_CATEGORIES: [&str; 6] = ["app-", "core-", "desktop-", "lang-", "meta-", "runtime-"];
 
+/// Get a scalar (string) field from the context. Non-scalar fields (arrays)
+/// are ignored for these package metadata fields.
+fn get_scalar<'a>(context: &'a Context, key: &str) -> Option<&'a str> {
+    context.get(key).and_then(|v| v.as_scalar())
+}
+
 impl Package {
-    pub fn from(
-        context: &HashMap<String, String>,
-        spec_path: &Path,
-    ) -> Result<Self, error::PackageError> {
-        let name = match context.get(NAME_FILED) {
+    pub fn from(context: &Context, spec_path: &Path) -> Result<Self, error::PackageError> {
+        let name = match get_scalar(context, NAME_FILED) {
             Some(name) => name.to_string(),
             None => {
                 return Err(PackageError {
@@ -82,14 +86,16 @@ impl Package {
             }
         }
 
-	let pkg_section = check_pkgsec(&name.as_str(),
-		context.get("PKGSEC").unwrap_or(&"".to_string()).to_owned())?;
+        let pkg_section = check_pkgsec(
+            name.as_str(),
+            get_scalar(context, "PKGSEC").unwrap_or("").to_owned(),
+        )?;
 
         // Get important fields
         let res = Package {
-            name: context.get("PKGNAME").unwrap().to_string(),
-            version: context.get("PKGVER").unwrap().to_string(),
-            epoch: match context.get("PKGEPOCH") {
+            name: get_scalar(context, "PKGNAME").unwrap().to_string(),
+            version: get_scalar(context, "PKGVER").unwrap().to_string(),
+            epoch: match get_scalar(context, "PKGEPOCH") {
                 Some(epoch) => match epoch.parse() {
                     Ok(epoch) => epoch,
                     Err(_e) => {
@@ -104,12 +110,12 @@ impl Package {
                 },
                 None => 0,
             },
-            release: match context.get("PKGREL") {
+            release: match get_scalar(context, "PKGREL") {
                 Some(rel) => rel.to_string(),
                 None => "0".to_string(),
             },
             fail_arch: {
-                if let Some(s) = context.get("FAIL_ARCH") {
+                if let Some(s) = get_scalar(context, "FAIL_ARCH") {
                     match FailArch::from(s) {
                         Ok(res) => Some(res),
                         Err(_) => {
@@ -140,7 +146,7 @@ impl Package {
                     error: PackageErrorType::FieldSyntaxError("DIRECTORY".to_string()),
                 };
                 let mut spec_path = spec_path.to_path_buf();
-                spec_path.pop().then(|| ()).ok_or_else(|| err.clone())?;
+                spec_path.pop().then_some(()).ok_or_else(|| err.clone())?;
                 let directory = spec_path
                     .file_name()
                     .ok_or_else(|| err.clone())?
@@ -148,7 +154,7 @@ impl Package {
                     .ok_or(err)?;
                 directory.to_string()
             },
-            description: context.get("PKGDES").expect("").to_string(),
+            description: get_scalar(context, "PKGDES").expect("").to_string(),
             spec_path: spec_path
                 .to_str()
                 .ok_or(PackageError {
@@ -162,14 +168,11 @@ impl Package {
     }
 }
 
-fn get_field_with_arch_restriction(
-    s: &str,
-    context: &HashMap<String, String>,
-) -> PackageDepDependencies {
+fn get_field_with_arch_restriction(s: &str, context: &Context) -> PackageDepDependencies {
     let mut dep = HashMap::new();
     dep.insert(
         "default".to_string(),
-        get_items_from_bash_string(context.get(s).unwrap_or(&String::new()))
+        get_items_from_bash_string(get_scalar(context, s).unwrap_or(""))
             .iter()
             .map(|s| split_by_relop(s))
             .collect(),
@@ -207,7 +210,7 @@ fn split_by_relop(s: &str) -> (String, Option<String>, Option<String>) {
         .or_else(|| f("=="))
         .or_else(|| f("<"))
         .or_else(|| f(">"))
-        .map_or_else(|| (s.to_string(), None, None), |v| v)
+        .unwrap_or_else(|| (s.to_string(), None, None))
 }
 
 fn get_items_from_bash_string(s: &str) -> Vec<String> {
@@ -220,13 +223,13 @@ fn get_items_from_bash_string(s: &str) -> Vec<String> {
 /// Find all entries in the HashMap with name that has the given prefix,
 ///   then return a Vec with the names (prefix stripped) and the values
 /// For example, PKGDEP__AMD64 with prefix="PKGDEP__" -> ("AMD64", fields) in the Vec
-fn get_fields_with_prefix(h: &HashMap<String, String>, prefix: &str) -> Vec<(String, String)> {
+fn get_fields_with_prefix(h: &Context, prefix: &str) -> Vec<(String, String)> {
     let mut res = Vec::new();
     for (name, value) in h {
         if name.starts_with(prefix) {
             res.push((
                 name.strip_prefix(prefix).unwrap().to_string(),
-                value.to_string(),
+                value.join(" "),
             ));
         }
     }
