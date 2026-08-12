@@ -9,4 +9,5 @@ abbs-meta-apml = { path = "../apml" }
 annotate-snippets = "0.12"
 anyhow = "1"
 clap = { version = "4", features = ["derive", "env"] }
+rayon = "1"
 walkdir = "2"

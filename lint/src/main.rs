@@ -17,6 +17,7 @@ use abbs_meta_apml::{parse, Context, DiagnosticInfo, DiagnosticSpan, Lint, LintF
 use annotate_snippets::{AnnotationKind, Level, Renderer, Snippet};
 use anyhow::{bail, Context as AnyhowContext, Result};
 use clap::{Parser, Subcommand};
+use rayon::prelude::*;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -29,6 +30,10 @@ struct Cli {
     /// Tree root directory (or the ABBS_DIR environment variable).
     #[arg(long, global = true, env = "ABBS_DIR")]
     tree: Option<PathBuf>,
+
+    /// Number of parallel workers (default: number of CPUs).
+    #[arg(long, global = true, default_value_t = default_jobs())]
+    jobs: usize,
 
     #[command(subcommand)]
     command: Option<Command>,
@@ -52,9 +57,19 @@ struct Finding {
     fix: Option<LintFix>,
 }
 
+/// Default parallelism: the number of CPUs available to the process.
+fn default_jobs() -> usize {
+    std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1)
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
     let cmd = cli.command.unwrap_or(Command::Check);
+
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(cli.jobs)
+        .build_global()
+        .expect("failed to build rayon thread pool");
 
     let spec_dir = cli
         .tree
@@ -145,6 +160,9 @@ fn print_finding(f: &Finding) {
 
 /// Walk the tree the way the collector does: per package, parse the `spec`
 /// once, then parse + lint every `defines` file against that context.
+///
+/// Packages are scanned in parallel (each is independent); findings are
+/// sorted so the output is deterministic regardless of thread count.
 fn scan_tree(root: &Path) -> Result<Vec<Finding>> {
     let mut defines_by_pkg: HashMap<PathBuf, Vec<PathBuf>> = HashMap::new();
 
@@ -159,39 +177,57 @@ fn scan_tree(root: &Path) -> Result<Vec<Finding>> {
         }
     }
 
+    let mut findings: Vec<Finding> = defines_by_pkg
+        .into_par_iter()
+        .map(|(pkg_dir, defs)| scan_package(&pkg_dir, &defs))
+        .collect::<Result<Vec<_>>>()?
+        .into_iter()
+        .flatten()
+        .collect();
+
+    findings.sort_by(|a, b| {
+        (&a.path, a.span.line, a.span.col).cmp(&(&b.path, b.span.line, b.span.col))
+    });
+    Ok(findings)
+}
+
+/// Scan one package: the `spec` seeds the context, then every `defines` is
+/// parsed and linted against it. Independent of every other package, so it
+/// can run on any worker thread.
+fn scan_package(pkg_dir: &Path, defs: &[PathBuf]) -> Result<Vec<Finding>> {
+    let spec_path = pkg_dir.join("spec");
+    let mut context = Context::new();
     let mut findings = Vec::new();
-    for (pkg_dir, defs) in &defines_by_pkg {
-        let spec_path = pkg_dir.join("spec");
 
-        // Parse the spec once: it seeds the context and is reported once.
-        let mut context = Context::new();
-        let mut spec_findings = Vec::new();
-        if spec_path.exists() {
-            let source = fs::read_to_string(&spec_path)?;
-            let result = parse(&source, &mut context);
-            collect_parse_diagnostics(&spec_path, &source, &result, &mut spec_findings);
-            for l in abbs_meta_apml::lint(&source, &Context::new()) {
-                spec_findings.push(to_finding(&spec_path, l));
-            }
-            spec_decorator(&mut context);
-        }
-        findings.extend(spec_findings);
+    // Parse the spec once: it seeds the context and is reported once.
+    if spec_path.exists() {
+        let source = fs::read_to_string(&spec_path)?;
+        let result = parse(&source, &mut context);
+        collect_parse_diagnostics(&spec_path, &source, &result, &mut findings);
+        findings.extend(
+            abbs_meta_apml::lint(&source, &Context::new())
+                .into_iter()
+                .map(|l| to_finding(&spec_path, l)),
+        );
+        spec_decorator(&mut context);
+    }
 
-        for def in defs {
-            let source = fs::read_to_string(def)?;
-            let mut file_findings = Vec::new();
+    for def in defs {
+        let source = fs::read_to_string(def)?;
+        let mut file_findings = Vec::new();
 
-            // Collector semantics: parse evaluates into the shared context.
-            let result = parse(&source, &mut context);
-            collect_parse_diagnostics(def, &source, &result, &mut file_findings);
+        // Collector semantics: parse evaluates into the shared context.
+        let result = parse(&source, &mut context);
+        collect_parse_diagnostics(def, &source, &result, &mut file_findings);
 
-            // Lint rules against the spec-seeded context.
-            for l in abbs_meta_apml::lint(&source, &context) {
-                file_findings.push(to_finding(def, l));
-            }
+        // Lint rules against the spec-seeded context.
+        file_findings.extend(
+            abbs_meta_apml::lint(&source, &context)
+                .into_iter()
+                .map(|l| to_finding(def, l)),
+        );
 
-            findings.extend(file_findings);
-        }
+        findings.extend(file_findings);
     }
     Ok(findings)
 }
@@ -261,8 +297,9 @@ fn spec_decorator(c: &mut Context) {
     }
 }
 
-/// Apply every fix, grouped by file. Edits are applied from the end of the
-/// file backwards so earlier byte offsets stay valid.
+/// Apply every fix, grouped by file. Files are fixed in parallel; the edits
+/// within a file are applied from the end backwards so earlier byte offsets
+/// stay valid.
 fn apply_fixes(findings: &[Finding]) -> Result<()> {
     let mut by_file: HashMap<&Path, Vec<&LintFix>> = HashMap::new();
     for f in findings {
@@ -271,36 +308,42 @@ fn apply_fixes(findings: &[Finding]) -> Result<()> {
         }
     }
 
-    for (path, fixes) in by_file {
-        let mut fixes = fixes.clone();
-        fixes.sort_by_key(|f| std::cmp::Reverse(f.start));
+    by_file
+        .into_par_iter()
+        .try_for_each(|(path, fixes)| apply_fixes_to_file(path, &fixes))
+}
 
-        // Reject overlapping fixes before touching the file.
-        for w in fixes.windows(2) {
-            if w[0].start < w[1].end {
-                bail!(
-                    "overlapping fixes in {} ({}..{} and {}..{}) — aborting",
-                    path.display(),
-                    w[1].start,
-                    w[1].end,
-                    w[0].start,
-                    w[0].end
-                );
-            }
-        }
+/// Apply every fix for one file. Edits are applied from the end of the file
+/// backwards so earlier byte offsets stay valid.
+fn apply_fixes_to_file(path: &Path, fixes: &[&LintFix]) -> Result<()> {
+    let mut fixes = fixes.to_vec();
+    fixes.sort_by_key(|f| std::cmp::Reverse(f.start));
 
-        let mut source = fs::read_to_string(path)?;
-        let orig_len = source.len();
-        for fix in fixes {
-            if fix.end > source.len() {
-                bail!("fix out of range in {}: {}..{}", path.display(), fix.start, fix.end);
-            }
-            source.replace_range(fix.start..fix.end, &fix.replacement);
+    // Reject overlapping fixes before touching the file.
+    for w in fixes.windows(2) {
+        if w[0].start < w[1].end {
+            bail!(
+                "overlapping fixes in {} ({}..{} and {}..{}) — aborting",
+                path.display(),
+                w[1].start,
+                w[1].end,
+                w[0].start,
+                w[0].end
+            );
         }
-        if source.len() != orig_len || source != fs::read_to_string(path)? {
-            fs::write(path, &source)?;
-            println!("fixed {}", path.display());
+    }
+
+    let mut source = fs::read_to_string(path)?;
+    let orig_len = source.len();
+    for fix in fixes {
+        if fix.end > source.len() {
+            bail!("fix out of range in {}: {}..{}", path.display(), fix.start, fix.end);
         }
+        source.replace_range(fix.start..fix.end, &fix.replacement);
+    }
+    if source.len() != orig_len || source != fs::read_to_string(path)? {
+        fs::write(path, &source)?;
+        println!("fixed {}", path.display());
     }
     Ok(())
 }
