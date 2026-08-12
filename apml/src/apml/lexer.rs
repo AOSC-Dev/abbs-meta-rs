@@ -465,8 +465,9 @@ impl<'a> Lexer<'a> {
                 Ok(Field::Param(Param::Positional(n)))
             }
             Some(c) if c.is_ascii_alphabetic() || c == '_' => {
+                let name_start = self.byte;
                 let name = self.scan_name_chars();
-                Ok(Field::Param(Param::Plain(name)))
+                Ok(Field::Param(Param::Plain { name, name_start }))
             }
             _ => Ok(Field::Literal("$".to_string())),
         }
@@ -492,7 +493,7 @@ impl<'a> Lexer<'a> {
         self.skip_to_matching_brace()?;
         // skip_to_matching_brace consumed the closing `}` (1 byte).
         let content = &self.src[start..self.byte - 1];
-        parse_braced_content(content)
+        parse_braced_content(content, start)
     }
 
     /// Scan the raw content of a `$( ... )` or `$(( ... ))` substitution.
@@ -704,12 +705,19 @@ fn push_literal_char(fields: &mut Vec<Field>, c: char) {
 }
 
 /// Parse the inner content of a `${ ... }` expansion into a [`Param`].
-fn parse_braced_content(content: &str) -> Result<Param, ParseErrorInfo> {
+///
+/// `content_start` is the byte offset of `content` in the source (just after
+/// `${`), used to record where the variable name begins.
+fn parse_braced_content(content: &str, content_start: usize) -> Result<Param, ParseErrorInfo> {
     // `${#name}` / `${#name[@]}` — length.
     if let Some(rest) = content.strip_prefix('#') {
         if let Some((name, index, rem)) = split_name_index(rest) {
             if rem.is_empty() {
-                return Ok(Param::Length { name, index });
+                return Ok(Param::Length {
+                    name,
+                    name_start: content_start + 1,
+                    index,
+                });
             }
         }
         return Err(ParseErrorInfo::InvalidSyntax(
@@ -726,17 +734,23 @@ fn parse_braced_content(content: &str) -> Result<Param, ParseErrorInfo> {
         }
     };
 
+    let name_start = content_start;
     if rest.is_empty() {
         return Ok(Param::Braced {
             name,
+            name_start,
             index,
             op: BracedOp::Value,
         });
     }
 
     // `${name[=:-?+]#...}` — a substitution applied to a subscripted value.
-    let subst =
-        |name: String, index: Option<Index>, op: BracedOp| Param::Braced { name, index, op };
+    let subst = |name: String, index: Option<Index>, op: BracedOp| Param::Braced {
+        name,
+        name_start,
+        index,
+        op,
+    };
 
     let op = if let Some(r) = rest.strip_prefix(":-") {
         BracedOp::Default {

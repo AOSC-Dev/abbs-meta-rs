@@ -70,7 +70,11 @@ pub struct Command {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Param {
     /// `$NAME`
-    Plain(String),
+    Plain {
+        name: String,
+        /// Byte offset of the variable name in the source (right after `$`).
+        name_start: usize,
+    },
     /// `$@` `$*` `$#` `$?` `$-` `$$` `$!`
     Special(char),
     /// `$0` .. `$9`, `${10}`
@@ -78,11 +82,18 @@ pub enum Param {
     /// `${NAME...}` (or `${NAME[index]...}`)
     Braced {
         name: String,
+        /// Byte offset of the variable name in the source (right after `${`).
+        name_start: usize,
         index: Option<Index>,
         op: BracedOp,
     },
     /// `${#NAME}` / `${#NAME[@]}`
-    Length { name: String, index: Option<Index> },
+    Length {
+        name: String,
+        /// Byte offset of the variable name in the source (right after `${#`).
+        name_start: usize,
+        index: Option<Index>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

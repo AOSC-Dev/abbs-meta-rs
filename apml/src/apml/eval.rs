@@ -211,6 +211,7 @@ fn eval_array_word(
                 if w.fields.len() == 1 && fs.len() == 1 {
                     if let Field::Param(Param::Braced {
                         name,
+                        name_start: _,
                         index: Some(Index::At),
                         op,
                     }) = &fs[0]
@@ -238,6 +239,7 @@ fn eval_array_word(
                 if w.fields.len() == 1 {
                     if let Param::Braced {
                         name,
+                        name_start: _,
                         index: Some(Index::At),
                         op,
                     } = p
@@ -358,9 +360,9 @@ fn eval_param_scalar<'a>(
     warn_skipped_command: bool,
 ) -> Result<Cow<'a, str>, ParseErrorInfo> {
     match p {
-        Param::Plain(name) => Ok(param_value(name, None, ctx)),
+        Param::Plain { name, .. } => Ok(param_value(name, None, ctx)),
         Param::Special(_) | Param::Positional(_) => Ok(Cow::Borrowed("")),
-        Param::Length { name, index } => match index {
+        Param::Length { name, index, .. } => match index {
             Some(Index::At) | Some(Index::Star) => {
                 Ok(Cow::Owned(format!("{}", array_elems(name, ctx).len())))
             }
@@ -369,7 +371,7 @@ fn eval_param_scalar<'a>(
                 param_value(name, None, ctx).chars().count()
             ))),
         },
-        Param::Braced { name, index, op } => {
+        Param::Braced { name, index, op, .. } => {
             eval_braced(name, index, op, ctx, runner, warnings, warn_skipped_command)
         }
     }
