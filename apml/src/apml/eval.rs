@@ -263,6 +263,7 @@ fn eval_array_word(
             Field::Command(_) | Field::Arith(_) => {
                 let single = Word {
                     span: w.span,
+                    end: w.end,
                     fields: vec![f.clone()],
                 };
                 let s = eval_scalar_word(&single, ctx, runner, warnings, warn_skipped_command)?;

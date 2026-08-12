@@ -83,6 +83,7 @@ pub fn parse_program(src: &str) -> Result<Vec<Stmt>, Vec<Diagnostic>> {
                     },
                     Some('\n') | None => ValueExpr::Scalar(Word {
                         span: name_span,
+                        end: name_span.byte,
                         fields: Vec::new(),
                     }),
                     _ => match lexer.scan_word(false) {

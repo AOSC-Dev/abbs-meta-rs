@@ -273,6 +273,7 @@ impl<'a> Lexer<'a> {
         }
         Ok(Word {
             span: start,
+            end: self.byte,
             fields,
         })
     }
@@ -1103,6 +1104,7 @@ impl<'a> Lexer<'a> {
         }
         Ok(Word {
             span: start,
+            end: self.byte,
             fields,
         })
     }

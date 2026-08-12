@@ -40,6 +40,9 @@ pub enum ValueExpr {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Word {
     pub span: Span,
+    /// Byte offset just past the end of the word in the source, so
+    /// `span.byte..end` is the word's full source range.
+    pub end: usize,
     pub fields: Vec<Field>,
 }
 
