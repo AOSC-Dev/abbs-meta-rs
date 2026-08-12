@@ -10,9 +10,13 @@ mod error;
 mod eval;
 mod glob;
 mod lexer;
+mod lint;
 mod parser;
 mod substitution;
+mod undefined;
 mod value;
+
+pub use lint::{lint, Lint, LintFix, LintSeverity};
 
 use eval::{eval_stmts, Runner};
 use std::collections::HashMap;
@@ -118,5 +122,19 @@ fn parse_impl(
             });
         }
     }
+
+    // Static check, independent of the runner: references to variables that
+    // are never defined (neither in the initial context nor by any
+    // assignment in this file). Bash expands these to the empty string, so
+    // they are warnings — but they usually indicate a package bug.
+    for (span, name) in undefined::collect_undefined_vars(&stmts, context) {
+        result.warnings.push(Diagnostic {
+            span: span.into(),
+            info: DiagnosticInfo::Warning(format!(
+                "variable `{name}` referenced but never defined"
+            )),
+        });
+    }
+
     result
 }

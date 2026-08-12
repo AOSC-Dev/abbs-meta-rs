@@ -1,4 +1,4 @@
-use abbs_meta_apml::{parse, parse_with_runner, Context, Diagnostic, DiagnosticInfo, Value};
+use abbs_meta_apml::{lint, parse, parse_with_runner, Context, Diagnostic, DiagnosticInfo, Lint, Value};
 
 use anyhow::{anyhow, Result};
 use std::io::Read;
@@ -77,6 +77,155 @@ fn test_undefined_expands_to_empty() {
     let ctx = parse_into("BCD=${NO}\nPKGDEP__M68K=\"${PKGDEP__M68K}\"\n");
     assert_eq!(scalar(&ctx, "BCD"), "");
     assert_eq!(scalar(&ctx, "PKGDEP__M68K"), "");
+}
+
+#[test]
+fn test_undefined_variable_warnings() {
+    let has_warning = |result: &abbs_meta_apml::ParseResult| {
+        result
+            .warnings
+            .iter()
+            .any(|d| matches!(&d.info, DiagnosticInfo::Warning(m) if m.contains("never defined")))
+    };
+
+    // Referencing a never-defined variable is a warning (bash: empty), not
+    // an error — like thunar's `BUILDDEP="${PKGSUG} intltool ..."`.
+    let mut ctx = Context::new();
+    let result = parse("BUILDDEP=\"${PKGSUG} intltool\"\n", &mut ctx);
+    assert!(result.is_ok());
+    assert!(has_warning(&result));
+    assert_eq!(scalar(&ctx, "BUILDDEP"), " intltool");
+
+    // Defined later in the file: no warning (forward reference is legal).
+    let mut ctx = Context::new();
+    let result = parse("A=$B\nB=1\n", &mut ctx);
+    assert!(!has_warning(&result));
+
+    // Defined in the initial context (e.g. from a spec): no warning.
+    let mut ctx = Context::new();
+    ctx.insert("__VER".into(), Value::Scalar("1.2".into()));
+    let result = parse("PKGDES=\"v${__VER}\"\n", &mut ctx);
+    assert!(!has_warning(&result));
+
+    // `${name:=word}` defines the name: no warning.
+    let mut ctx = Context::new();
+    let result = parse("X=${Y:=fallback}\n", &mut ctx);
+    assert!(!has_warning(&result));
+
+    // Defined by `+=` before use: no warning.
+    let mut ctx = Context::new();
+    let result = parse("D=\"a\"\nD+=\" b\"\nE=$D\n", &mut ctx);
+    assert!(!has_warning(&result));
+}
+
+#[test]
+fn test_lint_undefined_variable() {
+    let lints = lint("BUILDDEP=\"${PKGSUG} intltool\"\n", &Context::new());
+    let rules: Vec<&str> = lints.iter().map(|l| l.rule).collect();
+    assert!(rules.contains(&"undefined-variable"));
+    assert!(!rules.contains(&"typo"), "PKGSUG has no close match");
+}
+
+#[test]
+fn test_lint_typo_reference_direction() {
+    // `BUIDDEP__NOJAVA` (reference) is a typo of the defined
+    // `BUILDDEP__NOJAVA` → the reference is renamed.
+    let src = "BUILDDEP__NOJAVA=\"x\"\nBUILDDEP__LOONGSON3=\"${BUIDDEP__NOJAVA}\"\n";
+    let lints = lint(src, &Context::new());
+    let typos: Vec<&Lint> = lints.iter().filter(|l| l.rule == "typo").collect();
+    assert_eq!(typos.len(), 1, "expected exactly one typo finding");
+    let fix = typos[0].fix.as_ref().expect("typo should carry a fix");
+    assert_eq!(&src[fix.start..fix.end], "BUIDDEP__NOJAVA");
+    assert_eq!(fix.replacement, "BUILDDEP__NOJAVA");
+}
+
+#[test]
+fn test_lint_typo_definition_direction() {
+    // `BUILDEP__RETRO` (definition) is a typo of the referenced
+    // `BUILDDEP__RETRO` → the definition is renamed, not the references.
+    let src = "BUILDEP__RETRO=\"\"\nBUILDDEP__ARMV4=\"${BUILDDEP__RETRO}\"\n";
+    let lints = lint(src, &Context::new());
+    let typos: Vec<&Lint> = lints.iter().filter(|l| l.rule == "typo").collect();
+    assert_eq!(typos.len(), 1, "expected exactly one typo finding");
+    let fix = typos[0].fix.as_ref().expect("typo should carry a fix");
+    assert_eq!(&src[fix.start..fix.end], "BUILDEP__RETRO");
+    assert_eq!(fix.replacement, "BUILDDEP__RETRO");
+}
+
+fn rule_findings(src: &str, rule: &str) -> Vec<Lint> {
+    lint(src, &Context::new())
+        .into_iter()
+        .filter(|l| l.rule == rule)
+        .collect()
+}
+
+#[test]
+fn test_lint_pkgdes_style() {
+    // Valid: uppercase start, no trailing punctuation.
+    assert!(rule_findings("PKGDES=\"File manager for Xfce\"\n", "pkgdes-style").is_empty());
+    // Digit start is acceptable too (e.g. product names like "3D ...").
+    assert!(rule_findings("PKGDES=\"3D visualization tool for ROS 2\"\n", "pkgdes-style").is_empty());
+    // Lowercase start + trailing period → two findings.
+    let lints = rule_findings("PKGDES=\"library for rendering pdf.\"\n", "pkgdes-style");
+    assert_eq!(lints.len(), 2, "expected start + punctuation findings: {lints:?}");
+}
+
+#[test]
+fn test_lint_fail_arch() {
+    // Valid extglob forms pass.
+    assert!(rule_findings("FAIL_ARCH=\"!(mainline)\"\n", "fail-arch").is_empty());
+    assert!(rule_findings("FAIL_ARCH=\"@(retro|loongson3|riscv64)\"\n", "fail-arch").is_empty());
+    // Legacy plain-arch form is reported.
+    assert!(!rule_findings("FAIL_ARCH=\"loongson3\"\n", "fail-arch").is_empty());
+    // Unknown architecture is reported.
+    assert!(!rule_findings("FAIL_ARCH=\"!(amd64|fooarch)\"\n", "fail-arch").is_empty());
+    // Dynamic (empty) values are not validated.
+    assert!(rule_findings("FAIL_ARCH=\"${__CROSS}\"\n", "fail-arch").is_empty());
+}
+
+#[test]
+fn test_lint_srctbl_http() {
+    assert!(!rule_findings("SRCTBL=\"http://example.com/foo.tar.xz\"\n", "srctbl-http").is_empty());
+    assert!(rule_findings("SRCTBL=\"https://example.com/foo.tar.xz\"\n", "srctbl-http").is_empty());
+}
+
+#[test]
+fn test_lint_pkgsection() {
+    // Canonical sections pass (including modern LXQt / non-free forms).
+    assert!(rule_findings("PKGSEC=libs\n", "pkgsection").is_empty());
+    assert!(rule_findings("PKGSEC=LXQt\n", "pkgsection").is_empty());
+    assert!(rule_findings("PKGSEC=non-free/devel\n", "pkgsection").is_empty());
+    // Non-canonical with a suggestion.
+    let lints = rule_findings("PKGSEC=util\n", "pkgsection");
+    assert_eq!(lints.len(), 1);
+    assert!(
+        lints[0].message.contains("utils"),
+        "expected a `utils` suggestion, got: {}",
+        lints[0].message
+    );
+    // Non-canonical without a close match.
+    assert!(!rule_findings("PKGSEC=erlang\n", "pkgsection").is_empty());
+}
+
+#[test]
+fn test_lint_required_fields() {
+    // A complete defines passes.
+    assert!(rule_findings("PKGNAME=foo\nPKGSEC=libs\nPKGDES=\"Foo bar\"\n", "required-fields").is_empty());
+    // Missing PKGDES is reported.
+    let lints = rule_findings("PKGNAME=foo\nPKGSEC=libs\n", "required-fields");
+    assert!(lints.iter().any(|l| l.message.contains("PKGDES")));
+    // A complete spec passes.
+    assert!(rule_findings("VER=1.2\nSRCS=\"tbl::https://example.com/foo-$VER.tar.xz\"\nCHKSUMS=\"sha256::abc\"\n", "required-fields").is_empty());
+    // Spec missing SRCS (but has VER) is reported.
+    let lints = rule_findings("VER=1.2\nREL=1\nCHKSUMS=\"sha256::abc\"\n", "required-fields");
+    assert!(lints.iter().any(|l| l.message.contains("SRCS")));
+    // Spec missing VER (but has SRCS) is reported.
+    let lints = rule_findings("REL=1\nSRCS=\"tbl::https://example.com/foo.tar.xz\"\nCHKSUMS=\"sha256::abc\"\n", "required-fields");
+    assert!(lints.iter().any(|l| l.message.contains("VER")));
+    // DUMMYSRC satisfies the source requirement.
+    assert!(rule_findings("VER=1.2\nDUMMYSRC=1\n", "required-fields").is_empty());
+    // Arch-specific SRCS__AMD64 also satisfies the source requirement.
+    assert!(rule_findings("VER=1.2\nSRCS__AMD64=\"tbl::https://example.com/foo-$VER.tar.xz\"\n", "required-fields").is_empty());
 }
 
 #[test]
