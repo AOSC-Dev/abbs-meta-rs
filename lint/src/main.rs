@@ -203,7 +203,7 @@ fn scan_package(pkg_dir: &Path, defs: &[PathBuf]) -> Result<Vec<Finding>> {
     if spec_path.exists() {
         let source = fs::read_to_string(&spec_path)?;
         let result = parse(&source, &mut context);
-        collect_parse_diagnostics(&spec_path, &source, &result, &mut findings);
+        collect_parse_diagnostics(&spec_path, &result, &mut findings);
         findings.extend(
             abbs_meta_apml::lint(&source, &Context::new())
                 .into_iter()
@@ -218,7 +218,7 @@ fn scan_package(pkg_dir: &Path, defs: &[PathBuf]) -> Result<Vec<Finding>> {
 
         // Collector semantics: parse evaluates into the shared context.
         let result = parse(&source, &mut context);
-        collect_parse_diagnostics(def, &source, &result, &mut file_findings);
+        collect_parse_diagnostics(def, &result, &mut file_findings);
 
         // Lint rules against the spec-seeded context.
         file_findings.extend(
@@ -236,7 +236,6 @@ fn scan_package(pkg_dir: &Path, defs: &[PathBuf]) -> Result<Vec<Finding>> {
 /// is skipped here — the lint rules report it with richer information.
 fn collect_parse_diagnostics(
     path: &Path,
-    source: &str,
     result: &abbs_meta_apml::ParseResult,
     out: &mut Vec<Finding>,
 ) {
@@ -271,7 +270,6 @@ fn collect_parse_diagnostics(
             fix: None,
         });
     }
-    let _ = source;
 }
 
 fn to_finding(path: &Path, l: Lint) -> Finding {
@@ -345,5 +343,6 @@ fn apply_fixes_to_file(path: &Path, fixes: &[&LintFix]) -> Result<()> {
         fs::write(path, &source)?;
         println!("fixed {}", path.display());
     }
+
     Ok(())
 }
