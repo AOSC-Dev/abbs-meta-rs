@@ -1,0 +1,12 @@
+[package]
+name = "abbs-lint"
+version = "0.1.0"
+edition = "2021"
+description = "Lint and autofix for AOSC OS spec/defines files"
+
+[dependencies]
+abbs-meta-apml = { path = "../apml" }
+annotate-snippets = "0.12"
+anyhow = "1"
+clap = { version = "4", features = ["derive", "env"] }
+walkdir = "2"
