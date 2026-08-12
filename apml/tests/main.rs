@@ -210,10 +210,21 @@ fn test_lint_srctbl_http() {
 
 #[test]
 fn test_lint_pkgsection() {
-    // Canonical sections pass (including modern LXQt / non-free forms).
+    // Official casing passes (autobuild4 `sets/section`, case-sensitive).
     assert!(rule_findings("PKGSEC=libs\n", "pkgsection").is_empty());
     assert!(rule_findings("PKGSEC=LXQt\n", "pkgsection").is_empty());
+    assert!(rule_findings("PKGSEC=MATE\n", "pkgsection").is_empty());
+    assert!(rule_findings("PKGSEC=erlang\n", "pkgsection").is_empty());
     assert!(rule_findings("PKGSEC=non-free/devel\n", "pkgsection").is_empty());
+    // Non-official casing is reported and fixed to the official form.
+    let src = "PKGSEC=mate\n";
+    let lints = rule_findings(src, "pkgsection");
+    assert_eq!(lints.len(), 1);
+    let fix = lints[0].fix.as_ref().expect("should carry a fix");
+    assert_eq!(&src[fix.start..fix.end], "mate");
+    assert_eq!(fix.replacement, "MATE");
+    assert!(!rule_findings("PKGSEC=lxqt\n", "pkgsection").is_empty());
+    assert!(!rule_findings("PKGSEC=Utils\n", "pkgsection").is_empty());
     // Non-canonical with a suggestion and a fix (`util` → `utils`).
     let src = "PKGSEC=util\n";
     let lints = rule_findings(src, "pkgsection");
@@ -227,7 +238,7 @@ fn test_lint_pkgsection() {
     assert_eq!(&src[fix.start..fix.end], "util");
     assert_eq!(fix.replacement, "utils");
     // Non-canonical without a close match.
-    assert!(!rule_findings("PKGSEC=erlang\n", "pkgsection").is_empty());
+    assert!(!rule_findings("PKGSEC=multimedia\n", "pkgsection").is_empty());
 }
 
 #[test]

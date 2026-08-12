@@ -94,6 +94,7 @@ pub fn lint(c: &str, context: &Context) -> Vec<Lint> {
     out.extend(rule_srctbl_http(c, &stmts, context));
     out.extend(rule_pkgsection(c, &stmts, context));
     out.extend(rule_required_fields(c, &stmts));
+
     out
 }
 
@@ -118,6 +119,7 @@ fn rule_undefined_variable(stmts: &[Stmt], context: &Context) -> Vec<Lint> {
             });
         }
     }
+
     out
 }
 
@@ -128,60 +130,218 @@ fn rule_undefined_variable(stmts: &[Stmt], context: &Context) -> Vec<Lint> {
 /// is not a known ABBS name is the typo.
 const KNOWN_BASES: &[&str] = &[
     // Package metadata (defines).
-    "PKGNAME", "PKGVER", "PKGREL", "PKGDES", "PKGSEC", "PKGCAT", "PKGDEP", "BUILDDEP",
-    "PKGSUG", "PKGPROV", "PKGRECOM", "PKGREP", "PKGBREAK", "PKGCONFL", "PKGCONFIG",
+    "PKGNAME",
+    "PKGVER",
+    "PKGREL",
+    "PKGDES",
+    "PKGSEC",
+    "PKGCAT",
+    "PKGDEP",
+    "BUILDDEP",
+    "PKGSUG",
+    "PKGPROV",
+    "PKGRECOM",
+    "PKGREP",
+    "PKGBREAK",
+    "PKGCONFL",
+    "PKGCONFIG",
     // Spec file.
-    "VER", "REL", "EPOCH", "SRCS", "SRCTBL", "CHKSUMS", "CHKUPDATE", "DUMMYSRC",
-    "UPSTREAM_VER", "SUBDIR", "SUB",
+    "VER",
+    "REL",
+    "EPOCH",
+    "SRCS",
+    "SRCTBL",
+    "CHKSUMS",
+    "CHKUPDATE",
+    "DUMMYSRC",
+    "UPSTREAM_VER",
+    "SUBDIR",
+    "SUB",
     // Autobuild-provided paths and metadata.
-    "SRCDIR", "BLDDIR", "PKGDIR", "SYMDIR", "ABHOST", "ABTYPE", "ABPY3VER",
+    "SRCDIR",
+    "BLDDIR",
+    "PKGDIR",
+    "SYMDIR",
+    "ABHOST",
+    "ABTYPE",
+    "ABPY3VER",
     // Build environment switches (Autobuild3 manual §2.1).
-    "NOLTO", "NOTEST", "ABTEST_AUTO_DETECT", "USECLANG", "ABSHADOW", "ABCONFIGHACK",
-    "ABCLEAN", "ABTHREADS", "NOPARALLEL", "ABSTRIP", "ABSPLITDBG", "ABELFDEP",
-    "ABIFLAGS", "ABOPTS", "RECONF", "FAIL_ARCH", "VER_NONE", "MAKE_AFTER",
-    "AB_FLAGS_O3", "AB_FLAGS_SPECS", "AB_FLAGS_SSP", "AB_FLAGS_FTF", "AB_FLAGS_RRO",
-    "AB_FLAGS_PIE", "AB_FLAGS_PIC", "NOPYTHON2", "NOPYTHON3", "QT_SELECT",
+    "NOLTO",
+    "NOTEST",
+    "ABTEST_AUTO_DETECT",
+    "USECLANG",
+    "ABSHADOW",
+    "ABCONFIGHACK",
+    "ABCLEAN",
+    "ABTHREADS",
+    "NOPARALLEL",
+    "ABSTRIP",
+    "ABSPLITDBG",
+    "ABELFDEP",
+    "ABIFLAGS",
+    "ABOPTS",
+    "RECONF",
+    "FAIL_ARCH",
+    "VER_NONE",
+    "MAKE_AFTER",
+    "AB_FLAGS_O3",
+    "AB_FLAGS_SPECS",
+    "AB_FLAGS_SSP",
+    "AB_FLAGS_FTF",
+    "AB_FLAGS_RRO",
+    "AB_FLAGS_PIE",
+    "AB_FLAGS_PIC",
+    "NOPYTHON2",
+    "NOPYTHON3",
+    "QT_SELECT",
     // Build-type specific arguments (*_DEF / *_AFTER).
-    "AUTOTOOLS_DEF", "AUTOTOOLS_AFTER", "CMAKE_DEF", "CMAKE_AFTER", "MESON_DEF",
-    "MESON_AFTER", "WAF_DEF", "WAF_AFTER", "QTPROJ_DEF", "QTPROJ_AFTER",
-    "CARGO_AFTER", "GO_BUILD_AFTER", "GNUMAKE_AFTER", "PERL_AFTER", "PYTHON_AFTER",
-    "GO_AFTER", "NODEJS_AFTER",
+    "AUTOTOOLS_DEF",
+    "AUTOTOOLS_AFTER",
+    "CMAKE_DEF",
+    "CMAKE_AFTER",
+    "MESON_DEF",
+    "MESON_AFTER",
+    "WAF_DEF",
+    "WAF_AFTER",
+    "QTPROJ_DEF",
+    "QTPROJ_AFTER",
+    "CARGO_AFTER",
+    "GO_BUILD_AFTER",
+    "GNUMAKE_AFTER",
+    "PERL_AFTER",
+    "PYTHON_AFTER",
+    "GO_AFTER",
+    "NODEJS_AFTER",
     // Autobuild test framework (ABTESTS plus per-test metadata).
-    "ABTESTS", "ABTEST_AUTO_DETECT_ANCHOR", "TESTDES", "TESTDEP", "TESTEXEC",
+    "ABTESTS",
+    "ABTEST_AUTO_DETECT_ANCHOR",
+    "TESTDES",
+    "TESTDEP",
+    "TESTEXEC",
     "TESTTYPE",
     // Python version helpers (AB2/3VER, AB2/3SHORTVER).
-    "AB2VER", "AB3VER", "AB2SHORTVER", "AB3SHORTVER",
+    "AB2VER",
+    "AB3VER",
+    "AB2SHORTVER",
+    "AB3SHORTVER",
 ];
 
 /// Architectures recognised in `FAIL_ARCH` expressions.
 const KNOWN_ARCHES: &[&str] = &[
-    "amd64", "arm64", "armv4", "armv6hf", "armv7hf", "i486", "loongarch64",
-    "loongarch64_nosimd", "loongson2f", "loongson3", "m68k", "powerpc", "ppc64",
-    "ppc64el", "riscv64", "mips64r6el", "optenv32", "alpha", "ia64", "sparc64",
-    "hppa", "mips", "mips32", "mips64el", "sh4", "s390x", "x86", "i386",
+    "amd64",
+    "arm64",
+    "armv4",
+    "armv6hf",
+    "armv7hf",
+    "i486",
+    "loongarch64",
+    "loongarch64_nosimd",
+    "loongson2f",
+    "loongson3",
+    "m68k",
+    "powerpc",
+    "ppc64",
+    "ppc64el",
+    "riscv64",
+    "mips64r6el",
+    "optenv32",
+    "alpha",
+    "ia64",
+    "sparc64",
+    "hppa",
+    "mips",
+    "mips32",
+    "mips64el",
+    "sh4",
+    "s390x",
+    "x86",
+    "i386",
 ];
 
 /// Architecture groups allowed in `FAIL_ARCH` expressions (from
 /// `autobuild4/sets/arch_groups.json`).
 const ARCH_GROUPS: &[&str] = &[
-    "mainline", "mainline_tier1", "mainline_tier2", "arm", "ocaml_native", "retro",
-    "optenv", "64bit", "32bit",
+    "mainline",
+    "mainline_tier1",
+    "mainline_tier2",
+    "arm",
+    "ocaml_native",
+    "retro",
+    "optenv",
+    "64bit",
+    "32bit",
 ];
 
-/// Canonical `PKGSEC` sections (autobuild's `sets/section`, plus modern
-/// additions used across the tree). `non-free/<s>` and `contrib/<s>` forms
-/// of these are accepted too.
+/// Canonical `PKGSEC` sections, matching autobuild4's `sets/section`
+/// byte-for-byte (case-sensitive): `MATE`, `LXQt` and `Trinity` are
+/// canonical, `mate` is not. `non-free/<s>` and `contrib/<s>` forms are
+/// accepted too.
 const KNOWN_SECTIONS: &[&str] = &[
-    "admin", "Bases", "Cinnamon", "cli-mono", "comm", "cryptocurrency", "Cutefish",
-    "database", "debian-installer", "debug", "devel", "doc", "editors", "electronics",
-    "embedded", "fonts", "games", "gnome", "gnu-r", "gnustep", "graphics", "hamradio",
-    "haskell", "httpd", "interpreters", "java", "kde", "kernel", "libdevel", "libs",
-    "lisp", "localization", "LXDE", "LxQt", "LXQt", "MATE", "mail", "math", "misc",
-    "net", "news", "ocaml", "oldlibs", "otherosfs", "perl", "php", "python", "ruby",
-    "science", "shells", "sound", "tex", "text", "Trinity", "utils", "vcs", "video",
-    "virtual", "web", "x11", "xfce", "zope",
-    // Modern additions used across the tree.
-    "ros", "COSMIC",
+    "admin",
+    "Bases",
+    "Cinnamon",
+    "cli-mono",
+    "comm",
+    "COSMIC",
+    "cryptocurrency",
+    "Cutefish",
+    "database",
+    "debian-installer",
+    "debug",
+    "devel",
+    "doc",
+    "editors",
+    "electronics",
+    "embedded",
+    "erlang",
+    "fonts",
+    "games",
+    "gnome",
+    "gnu-r",
+    "gnustep",
+    "graphics",
+    "hamradio",
+    "haskell",
+    "httpd",
+    "interpreters",
+    "java",
+    "kde",
+    "kernel",
+    "libdevel",
+    "libs",
+    "lisp",
+    "localization",
+    "LXDE",
+    "LXQt",
+    "MATE",
+    "mail",
+    "math",
+    "metrics",
+    "misc",
+    "net",
+    "news",
+    "ocaml",
+    "oldlibs",
+    "otherosfs",
+    "perl",
+    "php",
+    "python",
+    "ros",
+    "ruby",
+    "science",
+    "shells",
+    "sound",
+    "tex",
+    "text",
+    "Trinity",
+    "utils",
+    "vcs",
+    "video",
+    "virtual",
+    "web",
+    "x11",
+    "xfce",
+    "zope",
 ];
 
 fn is_known_arch(name: &str) -> bool {
@@ -211,13 +371,16 @@ fn eval_var(stmts: &[Stmt], context: &Context, name: &str) -> Option<EvaledVar> 
     let mut warnings = Vec::new();
     let mut result: Option<EvaledVar> = None;
     let mut reassigned = false;
+
     for stmt in stmts {
         if stmt.name != name {
             continue;
         }
+
         let ValueExpr::Scalar(w) = &stmt.value else {
             continue;
         };
+
         let s = eval::eval_scalar_word(w, &mut ctx, &mut runner, &mut warnings, false).ok()?;
         let value = match stmt.op {
             AssignOp::Eq => s,
@@ -227,6 +390,7 @@ fn eval_var(stmts: &[Stmt], context: &Context, name: &str) -> Option<EvaledVar> 
                 v
             }
         };
+
         // Only a single `=` assignment gives a value range that is safe to
         // edit; `+=` or a reassignment spans multiple words.
         let range = if reassigned || stmt.op == AssignOp::PlusEq {
@@ -409,13 +573,11 @@ fn rule_pkgdes_style(c: &str, stmts: &[Stmt], context: &Context) -> Vec<Lint> {
             // Drop a trailing punctuation character (plain literal values
             // only).
             let fix = match content {
-                Some((_, e, content)) if content.ends_with(last) => {
-                    Some(LintFix {
-                        start: e - last.len_utf8(),
-                        end: e,
-                        replacement: String::new(),
-                    })
-                }
+                Some((_, e, content)) if content.ends_with(last) => Some(LintFix {
+                    start: e - last.len_utf8(),
+                    end: e,
+                    replacement: String::new(),
+                }),
                 _ => None,
             };
             out.push(Lint {
@@ -532,10 +694,14 @@ fn rule_pkgsection(c: &str, stmts: &[Stmt], context: &Context) -> Vec<Lint> {
     }
     // Suggest the closest canonical section, but only when the closest
     // distance is unique (e.g. `util` → `utils`, not the tie with `mail`).
+    // Matching is case-sensitive, but the suggestion distance is
+    // case-insensitive so casing-only deviations (`mate` → `MATE`) are
+    // still reported and fixed to the official casing.
+    let lower = value.to_ascii_lowercase();
     let mut best: Option<(usize, &str)> = None;
     let mut ambiguous = false;
     for s in KNOWN_SECTIONS {
-        let d = edit_distance(value, s);
+        let d = edit_distance(&lower, &s.to_ascii_lowercase());
         match best {
             None => best = Some((d, s)),
             Some((bd, _)) if d < bd => {
@@ -579,7 +745,9 @@ fn rule_required_fields(c: &str, stmts: &[Stmt]) -> Vec<Lint> {
     let mut out = Vec::new();
     let top = byte_span(c, 0, 0);
 
-    let is_defines = ["PKGNAME", "PKGSEC", "PKGDES"].iter().any(|v| assigned.contains(v));
+    let is_defines = ["PKGNAME", "PKGSEC", "PKGDES"]
+        .iter()
+        .any(|v| assigned.contains(v));
     if is_defines {
         for required in ["PKGNAME", "PKGSEC", "PKGDES"] {
             if !assigned.contains(required) {
@@ -594,7 +762,9 @@ fn rule_required_fields(c: &str, stmts: &[Stmt]) -> Vec<Lint> {
         }
     }
 
-    let is_spec = ["VER", "SRCS", "DUMMYSRC"].iter().any(|v| assigned.contains(v));
+    let is_spec = ["VER", "SRCS", "DUMMYSRC"]
+        .iter()
+        .any(|v| assigned.contains(v));
     if is_spec {
         if !assigned.contains("VER") {
             out.push(Lint {
