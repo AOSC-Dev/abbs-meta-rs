@@ -1,8 +1,5 @@
 use aho_corasick::{AhoCorasickBuilder, MatchKind};
-use annotate_snippets::{
-    display_list::{DisplayList, FormatOptions},
-    snippet::{Annotation, AnnotationType, Slice, Snippet, SourceAnnotation},
-};
+use annotate_snippets::{renderer::DecorStyle, AnnotationKind, Level, Renderer, Snippet};
 use std::fmt;
 
 #[derive(Debug, Clone)]
@@ -86,33 +83,19 @@ impl ParseError {
             start_marker = self.byte - 1;
             end_marker = self.byte;
         }
-        let marker = SourceAnnotation {
-            label: reason,
-            annotation_type: AnnotationType::Error,
-            range: (start_marker, end_marker),
-        };
-        let title = Annotation {
-            label: Some(err_type),
-            id: None,
-            annotation_type: AnnotationType::Error,
-        };
-        let snippet = Snippet {
-            title: Some(title),
-            footer: vec![],
-            slices: vec![Slice {
-                source,
-                line_start: 1,
-                origin: Some(filename),
-                fold: true,
-                annotations: vec![marker],
-            }],
-            opt: FormatOptions {
-                color: true,
-                ..Default::default()
-            },
-        };
-        let list = DisplayList::from(snippet);
-        list.to_string()
+        let report = &[Level::ERROR.primary_title(err_type).element(
+            Snippet::source(source)
+                .path(filename)
+                .line_start(1)
+                .fold(true)
+                .annotation(
+                    AnnotationKind::Primary
+                        .span(start_marker..end_marker)
+                        .label(reason),
+                ),
+        )];
+        let renderer = Renderer::styled().decor_style(DecorStyle::Unicode);
+        renderer.render(report)
     }
 }
 
