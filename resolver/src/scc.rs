@@ -13,10 +13,10 @@ pub struct TState {
 impl Default for TState {
     fn default() -> Self {
         TState {
-            lowlink: DefaultHashMap::new(-1),
-            stackstate: DefaultHashMap::new(false),
+            lowlink: DefaultHashMap::with_default(-1),
+            stackstate: DefaultHashMap::with_default(false),
             stack: Vec::new(),
-            index: DefaultHashMap::new(-1),
+            index: DefaultHashMap::with_default(-1),
         }
     }
 }
