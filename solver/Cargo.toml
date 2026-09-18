@@ -10,6 +10,6 @@ regex = "1"
 lazy_static = "1"
 # Good stuff
 varisat = "0.2"
-petgraph = "0.5"
+petgraph = "0.8"
 rayon = "1"
 serde = "1"
